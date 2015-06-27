@@ -87,12 +87,14 @@ __FBSDID("$FreeBSD$");
 #include <sys/kthread.h>
 #include <sys/ktr.h>
 #include <sys/mount.h>
+#include <sys/queue.h>
 #include <sys/racct.h>
 #include <sys/resourcevar.h>
 #include <sys/sched.h>
 #include <sys/sdt.h>
 #include <sys/signalvar.h>
 #include <sys/smp.h>
+#include <sys/tree.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
 #include <sys/rwlock.h>
@@ -239,6 +241,47 @@ static void vm_pageout_object_deactivate_pages(pmap_t, vm_object_t, long);
 static void vm_req_vmdaemon(int req);
 #endif
 static boolean_t vm_pageout_page_lock(vm_page_t, vm_page_t *);
+
+#ifdef __amd64__
+static int vm_dedup_tree_cmp(vm_page_t m1, vm_page_t m2);
+
+TAILQ_HEAD(, vm_page) vm_dedup_queue;
+
+RB_HEAD(vm_dedup, vm_page) vm_dedup_tree;
+
+RB_PROTOTYPE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
+RB_GENERATE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
+
+static int
+vm_dedup_tree_cmp(vm_page_t m1, vm_page_t m2)
+{
+	vm_offset_t va1, va2;
+	int ret;
+	boolean_t lock2acq;
+
+	vm_page_lock(m1);
+	if (mtx_owned(vm_page_lockptr(m2))) {
+		lock2acq = FALSE;
+	} else {
+		lock2acq = TRUE;
+		vm_page_lock(m2);
+	}
+
+	if (VM_PAGE_TO_PHYS(m1) == VM_PAGE_TO_PHYS(m2)) {
+		ret = 0;
+	} else {
+		va1 = PHYS_TO_DMAP(VM_PAGE_TO_PHYS(m1));
+		va2 = PHYS_TO_DMAP(VM_PAGE_TO_PHYS(m2));
+		ret = bcmp((void *)va1, (void *)va2, PAGE_SIZE);
+	}
+
+	if (lock2acq)
+		vm_page_unlock(m2);
+	vm_page_unlock(m1);
+
+	return (ret);
+}
+#endif
 
 /*
  * Initialize a dummy page for marking the caller's place in the specified

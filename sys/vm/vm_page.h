@@ -67,6 +67,9 @@
 #ifndef	_VM_PAGE_
 #define	_VM_PAGE_
 
+#include <sys/queue.h>
+#include <sys/tree.h>
+
 #include <vm/pmap.h>
 
 /*
@@ -158,6 +161,8 @@ struct vm_page {
 	/* so, on normal X86 kernels, they must be at least 8 bits wide */
 	vm_page_bits_t valid;		/* map of valid DEV_BSIZE chunks (O) */
 	vm_page_bits_t dirty;		/* map of dirty DEV_BSIZE chunks (M) */
+	TAILQ_ENTRY(vm_page) dedupq;	/* deduplication queue */
+	RB_ENTRY(vm_page) dedupt;	/* deduplication tree */
 };
 
 /*
