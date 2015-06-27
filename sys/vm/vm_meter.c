@@ -293,6 +293,7 @@ VM_STATS_VM(v_intrans, "In transit page faults");
 VM_STATS_VM(v_reactivated, "Pages reactivated from free list");
 VM_STATS_VM(v_pdwakeups, "Pagedaemon wakeups");
 VM_STATS_VM(v_pdpages, "Pages analyzed by pagedaemon");
+VM_STATS_VM(v_deduplicated, "Pages deduplicated");
 VM_STATS_VM(v_tcached, "Total pages cached");
 VM_STATS_VM(v_dfree, "Pages freed by pagedaemon");
 VM_STATS_VM(v_pfree, "Pages freed by exiting processes");

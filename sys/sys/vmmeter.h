@@ -78,6 +78,7 @@ struct vmmeter {
 	u_int v_reactivated;	/* (f) pages reactivated from free list */
 	u_int v_pdwakeups;	/* (f) times daemon has awaken from sleep */
 	u_int v_pdpages;	/* (p) pages analyzed by daemon */
+	u_int v_deduplicated;	/* (p) pages deduplicated */
 
 	u_int v_tcached;	/* (p) total pages cached */
 	u_int v_dfree;		/* (p) pages freed by daemon */
