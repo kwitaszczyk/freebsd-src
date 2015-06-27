@@ -246,8 +246,10 @@ static boolean_t vm_pageout_page_lock(vm_page_t, vm_page_t *);
 static int vm_dedup_tree_cmp(vm_page_t m1, vm_page_t m2);
 
 TAILQ_HEAD(, vm_page) vm_dedup_queue;
+struct mtx vm_dedup_queue_mtx;
 
 RB_HEAD(vm_dedup, vm_page) vm_dedup_tree;
+struct mtx vm_dedup_tree_mtx;
 
 RB_PROTOTYPE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
 RB_GENERATE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
