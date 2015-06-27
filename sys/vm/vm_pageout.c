@@ -254,6 +254,15 @@ struct mtx vm_dedup_tree_mtx;
 RB_PROTOTYPE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
 RB_GENERATE(vm_dedup, vm_page, dedupt, vm_dedup_tree_cmp);
 
+static void
+vm_dedup_queue_insert(vm_page_t m)
+{
+
+	mtx_lock(&vm_dedup_queue_mtx);
+	TAILQ_INSERT_TAIL(&vm_dedup_queue, m, dedupq);
+	mtx_unlock(&vm_dedup_queue_mtx);
+}
+
 static int
 vm_dedup_tree_cmp(vm_page_t m1, vm_page_t m2)
 {
@@ -1361,6 +1370,8 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 			}
 			vm_page_lock_assert(m, MA_NOTOWNED);
 			goto relock_queues;
+		} else if (!pmap_page_is_write_mapped(m)) {
+			vm_dedup_queue_insert(m);
 		}
 drop_page:
 		vm_page_unlock(m);
@@ -1485,6 +1496,10 @@ relock_queues:
 			page_shortage--;
 		} else
 			vm_page_requeue_locked(m);
+
+		if (!pmap_page_is_write_mapped(m))
+			vm_dedup_queue_insert(m);
+
 		vm_page_unlock(m);
 		m = next;
 	}
