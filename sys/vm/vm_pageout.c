@@ -283,6 +283,17 @@ vm_dedup_tree_cmp(vm_page_t m1, vm_page_t m2)
 
 	return (ret);
 }
+
+static void
+vm_dedup_init(void)
+{
+
+	TAILQ_INIT(&vm_dedup_queue);
+	mtx_init(&vm_dedup_queue_mtx, "vm dedup queue", NULL, MTX_DEF);
+
+	RB_INIT(&vm_dedup_tree);
+	mtx_init(&vm_dedup_tree_mtx, "vm dedup tree", NULL, MTX_DEF);
+}
 #endif
 
 /*
@@ -1763,6 +1774,9 @@ vm_pageout_init(void)
 	/* XXX does not really belong here */
 	if (vm_page_max_wired == 0)
 		vm_page_max_wired = vm_cnt.v_free_count / 3;
+
+	/* Initialize memory deduplication structures. */
+	vm_dedup_init();
 }
 
 /*
