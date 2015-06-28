@@ -303,6 +303,35 @@ vm_dedup_init(void)
 	RB_INIT(&vm_dedup_tree);
 	mtx_init(&vm_dedup_tree_mtx, "vm dedup tree", NULL, MTX_DEF);
 }
+
+static void
+vm_dedup(void)
+{
+	vm_page_t m1, m2;
+
+	mtx_lock(&vm_dedup_queue_mtx);
+
+	while (!TAILQ_EMPTY(&vm_dedup_queue)) {
+		m1 = TAILQ_FIRST(&vm_dedup_queue);
+		TAILQ_REMOVE(&vm_dedup_queue, m1, dedupq);
+
+		mtx_lock(&vm_dedup_tree_mtx);
+		m2 = RB_INSERT(vm_dedup, &vm_dedup_tree, m1);
+		mtx_unlock(&vm_dedup_tree_mtx);
+
+		if (m2 != NULL)
+			PCPU_INC(cnt.v_deduplicated);
+	}
+
+	mtx_unlock(&vm_dedup_queue_mtx);
+
+	/*
+	 * TODO: don't reinitialize the deduplication tree.
+	 */
+	mtx_lock(&vm_dedup_tree_mtx);
+	RB_INIT(&vm_dedup_tree);
+	mtx_unlock(&vm_dedup_tree_mtx);
+}
 #endif
 
 /*
@@ -1504,6 +1533,12 @@ relock_queues:
 		m = next;
 	}
 	vm_pagequeue_unlock(pq);
+
+	/*
+	 * Deduplicate pages.
+	 */
+	vm_dedup();
+
 #if !defined(NO_SWAPPING)
 	/*
 	 * Idle process swapout -- run once per second.
