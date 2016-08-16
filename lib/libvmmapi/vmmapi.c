@@ -38,7 +38,6 @@ __FBSDID("$FreeBSD$");
 
 #include <x86/segments.h>
 #include <machine/specialreg.h>
-#include <machine/param.h>
 
 #include <errno.h>
 #include <stdio.h>
@@ -472,7 +471,7 @@ vm_create_devmem(struct vmctx *ctx, int segid, const char *name, size_t len)
 	if (error)
 		goto done;
 
-	strlcpy(pathname, "/dev/vmm/", sizeof(pathname));
+	strlcpy(pathname, "/dev/vmm.io/", sizeof(pathname));
 	strlcat(pathname, ctx->name, sizeof(pathname));
 	strlcat(pathname, ".", sizeof(pathname));
 	strlcat(pathname, name, sizeof(pathname));

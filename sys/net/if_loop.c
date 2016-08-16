@@ -156,7 +156,7 @@ vnet_loif_init(const void *unused __unused)
 	    1);
 #endif
 }
-VNET_SYSINIT(vnet_loif_init, SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY,
+VNET_SYSINIT(vnet_loif_init, SI_SUB_PSEUDO, SI_ORDER_ANY,
     vnet_loif_init, NULL);
 
 #ifdef VIMAGE
@@ -167,7 +167,7 @@ vnet_loif_uninit(const void *unused __unused)
 	if_clone_detach(V_lo_cloner);
 	V_loif = NULL;
 }
-VNET_SYSUNINIT(vnet_loif_uninit, SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY,
+VNET_SYSUNINIT(vnet_loif_uninit, SI_SUB_INIT_IF, SI_ORDER_SECOND,
     vnet_loif_uninit, NULL);
 #endif
 
@@ -202,15 +202,12 @@ looutput(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
     struct route *ro)
 {
 	u_int32_t af;
-	struct rtentry *rt = NULL;
 #ifdef MAC
 	int error;
 #endif
 
 	M_ASSERTPKTHDR(m); /* check if we have the packet header */
 
-	if (ro != NULL)
-		rt = ro->ro_rt;
 #ifdef MAC
 	error = mac_ifnet_check_transmit(ifp, m);
 	if (error) {
@@ -219,17 +216,16 @@ looutput(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
 	}
 #endif
 
-	if (rt && rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE)) {
+	if (ro != NULL && ro->ro_flags & (RT_REJECT|RT_BLACKHOLE)) {
 		m_freem(m);
-		return (rt->rt_flags & RTF_BLACKHOLE ? 0 :
-		        rt->rt_flags & RTF_HOST ? EHOSTUNREACH : ENETUNREACH);
+		return (ro->ro_flags & RT_BLACKHOLE ? 0 : EHOSTUNREACH);
 	}
 
 	if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 	if_inc_counter(ifp, IFCOUNTER_OBYTES, m->m_pkthdr.len);
 
 	/* BPF writes need to be handled specially. */
-	if (dst->sa_family == AF_UNSPEC)
+	if (dst->sa_family == AF_UNSPEC || dst->sa_family == pseudo_AF_HDRCMPLT)
 		bcopy(dst->sa_data, &af, sizeof(af));
 	else
 		af = dst->sa_family;
@@ -384,7 +380,7 @@ loioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
-		if (ifr == 0) {
+		if (ifr == NULL) {
 			error = EAFNOSUPPORT;		/* XXX */
 			break;
 		}

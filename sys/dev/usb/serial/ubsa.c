@@ -273,6 +273,7 @@ DRIVER_MODULE(ubsa, uhub, ubsa_driver, ubsa_devclass, NULL, 0);
 MODULE_DEPEND(ubsa, ucom, 1, 1, 1);
 MODULE_DEPEND(ubsa, usb, 1, 1, 1);
 MODULE_VERSION(ubsa, 1);
+USB_PNP_HOST_INFO(ubsa_devs);
 
 static int
 ubsa_probe(device_t dev)
@@ -649,11 +650,19 @@ ubsa_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_copy_out(pc, 0, buf, sizeof(buf));
 
 			/*
-			 * incidentally, Belkin adapter status bits match
-			 * UART 16550 bits
+			 * MSR bits need translation from ns16550 to SER_* values.
+			 * LSR bits are ns16550 in hardware and ucom.
 			 */
+			sc->sc_msr = 0;
+			if (buf[3] & UBSA_MSR_CTS)
+				sc->sc_msr |= SER_CTS;
+			if (buf[3] & UBSA_MSR_DCD)
+				sc->sc_msr |= SER_DCD;
+			if (buf[3] & UBSA_MSR_RI)
+				sc->sc_msr |= SER_RI;
+			if (buf[3] & UBSA_MSR_DSR)
+				sc->sc_msr |= SER_DSR;
 			sc->sc_lsr = buf[2];
-			sc->sc_msr = buf[3];
 
 			DPRINTF("lsr = 0x%02x, msr = 0x%02x\n",
 			    sc->sc_lsr, sc->sc_msr);
@@ -662,7 +671,7 @@ ubsa_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 		} else {
 			DPRINTF("ignoring short packet, %d bytes\n", actlen);
 		}
-
+		/* FALLTHROUGH */
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));

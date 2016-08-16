@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+PACKAGE=lib${LIB}
 PRIVATELIB=	yes
 LIB=	sqlite3
 SHLIB_MAJOR?=	0
@@ -12,10 +13,10 @@ SQLITE=	${.CURDIR}/../../contrib/sqlite3
 
 WARNS=	3
 CFLAGS+=	-I${SQLITE} \
+		-DUSE_PREAD=1 \
 		-DSTDC_HEADERS=1 \
 		-DHAVE_SYS_TYPES_H=1 \
 		-DHAVE_SYS_STAT_H=1 \
-		-DUSE_PREAD=1 \
 		-DHAVE_STDLIB_H=1 \
 		-DHAVE_STRING_H=1 \
 		-DHAVE_MEMORY_H=1 \

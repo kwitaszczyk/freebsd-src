@@ -8,11 +8,13 @@
     bin
         cat
         ..
-        chown
-        ..
         date
         ..
+        dd
+        ..
         expr
+        ..
+        ls
         ..
         mv
         ..
@@ -211,6 +213,8 @@
                     ..
                 ..
             ..
+            zfsd
+            ..
         ..
     ..
     etc
@@ -240,6 +244,8 @@
             test-programs
             ..
         ..
+        libarchive
+        ..
         libc
             c063
             ..
@@ -255,6 +261,8 @@
                 data
                 ..
             ..
+            iconv
+            ..
             inet
             ..
             locale
@@ -265,11 +273,19 @@
                     ..
                 ..
             ..
+            nss
+            ..
             regex
                 data
                 ..
             ..
+            resolv
+            ..
+            rpc
+            ..
             ssp
+            ..
+            setjmp
             ..
             stdio
             ..
@@ -292,6 +308,8 @@
         ..
         libcrypt
         ..
+        libdevdctl
+        ..
         libmp
         ..
         libnv
@@ -307,6 +325,8 @@
             ..
         ..
         libutil
+        ..
+        libxo
         ..
         msun
         ..
@@ -354,17 +374,55 @@
         ..
     ..
     sys
+        acl
+        ..
         aio
         ..
         fifo
         ..
         file
         ..
+        geom
+            class
+                concat
+                ..
+                eli
+                ..
+                gate
+                ..
+                gpt
+                ..
+                mirror
+                ..
+                nop
+                ..
+                raid3
+                ..
+                shsec
+                ..
+                stripe
+                ..
+                uzip
+                    etalon
+                    ..
+                ..
+            ..
+        ..
         kern
+            acct
+            ..
             execve
+            ..
+            pipe
             ..
         ..
         kqueue
+        ..
+        mac
+            bsdextended
+            ..
+            portacl
+            ..
         ..
         mqueue
         ..
@@ -403,6 +461,12 @@
             ..
             unlink
             ..
+        ..
+        posixshm
+        ..
+        sys
+        ..
+        vfs
         ..
         vm
         ..
@@ -510,9 +574,13 @@
                 ..
             ..
         ..
+	bsdcat
+	..
         calendar
         ..
         cmp
+        ..
+        cpio
         ..
         col
         ..
@@ -528,11 +596,15 @@
         ..
         gzip
         ..
+        ident
+        ..
         join
         ..
         jot
         ..
         lastcomm
+        ..
+        limits
         ..
         m4
         ..
@@ -544,11 +616,15 @@
         ..
         printf
         ..
+        sdiff
+        ..
         sed
             regress.multitest.out
             ..
         ..
         soelim
+        ..
+        tar
         ..
         timeout
         ..
@@ -564,19 +640,33 @@
         ..
         xargs
         ..
+        xinstall
+        ..
+        xo
+        ..
         yacc
             yacc
             ..
         ..
     ..
     usr.sbin
+        chown
+        ..
         etcupdate
+        ..
+        extattr
+        ..
+        fstyp
+        ..
+        makefs
         ..
         newsyslog
         ..
         nmtree
         ..
         pw
+        ..
+        rpcbind
         ..
         sa
         ..

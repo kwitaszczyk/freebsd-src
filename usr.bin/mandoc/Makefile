@@ -6,11 +6,9 @@ MDOCMLDIR=	${.CURDIR}/../../contrib/mdocml
 .PATH: ${MDOCMLDIR}
 
 PROG=	mandoc
-FILES=	example.style.css style.css
-FILESDIR=	${SHAREDIR}/mdocml
 MAN=	mandoc.1 eqn.7 mandoc_char.7 tbl.7 man.7 mdoc.7 # roff.7
 MLINKS=	mandoc.1 mdocml.1
-.if ${MK_MANDOCDB} != no
+.if ${MK_MANDOCDB} != no && ${MK_MAN_UTILS} != no
 MAN+=	apropos.1 makewhatis.8
 MLINKS+=	apropos.1 whatis.1
 LINKS=	${BINDIR}/mandoc ${BINDIR}/whatis \
@@ -29,6 +27,7 @@ LIBMDOC_SRCS=	att.c \
 		mdoc_argv.c \
 		mdoc_hash.c \
 		mdoc_macro.c \
+		mdoc_state.c \
 		mdoc_validate.c \
 		st.c \
 
@@ -45,6 +44,7 @@ LIB_SRCS=	${LIBMAN_SRCS} \
 		chars.c \
 		mandoc.c \
 		mandoc_aux.c \
+		mandoc_ohash.c \
 		msec.c \
 		preconv.c \
 		read.c
@@ -68,6 +68,7 @@ TERM_SRCS=	eqn_term.c \
 DB_SRCS=	mandocdb.c \
 		mansearch.c \
 		mansearch_const.c \
+		tag.c \
 		manpath.c
 
 SRCS=		${LIB_SRCS} \
@@ -82,8 +83,8 @@ SRCS+=	${DB_SRCS}
 
 WARNS?=	2
 CFLAGS+= -DHAVE_CONFIG_H \
-	 -I${.CURDIR}/../../lib/libohash/ \
+	 -I${.CURDIR}/../../lib/libopenbsd/ \
 	 -I${.CURDIR}/../../contrib/sqlite3
-LIBADD=	ohash sqlite3 z
+LIBADD=	openbsd sqlite3 z
 
 .include <bsd.prog.mk>

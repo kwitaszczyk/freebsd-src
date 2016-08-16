@@ -382,6 +382,7 @@ DRIVER_MODULE(uslcom, uhub, uslcom_driver, uslcom_devclass, NULL, 0);
 MODULE_DEPEND(uslcom, ucom, 1, 1, 1);
 MODULE_DEPEND(uslcom, usb, 1, 1, 1);
 MODULE_VERSION(uslcom, 1);
+USB_PNP_HOST_INFO(uslcom_devs);
 
 static void
 uslcom_watchdog(void *arg)
@@ -703,6 +704,7 @@ uslcom_get_status(struct ucom_softc *ucom, uint8_t *lsr, uint8_t *msr)
 
 	DPRINTF("\n");
 
+	/* XXX Note: sc_lsr is always zero */
 	*lsr = sc->sc_lsr;
 	*msr = sc->sc_msr;
 }

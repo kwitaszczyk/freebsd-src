@@ -25,18 +25,12 @@ include 	"../annapurna/alpine/std.alpine"
 makeoptions	MODULES_OVERRIDE=""
 makeoptions	WERROR="-Werror"
 
-options 	HZ=100
 options 	SCHED_4BSD		# 4BSD scheduler
 options 	SMP			# Enable multiple cores
 
-# Debugging
-makeoptions	DEBUG=-g		#Build kernel with gdb(1) debug symbols
-options 	ALT_BREAK_TO_DEBUGGER
-options 	KDB
-options 	DDB			#Enable the kernel debugger
-
 # Interrupt controller
 device		gic
+options 	INTRNG
 
 # Pseudo devices
 device		loop
@@ -48,7 +42,6 @@ device		gpio
 # ATA controllers
 device		ahci		# AHCI-compatible SATA controllers
 device		ata		# Legacy ATA/SATA controllers
-options 	ATA_STATIC_ID	# Static device numbering
 
 # ATA/SCSI peripherals
 device		scbus		# SCSI bus (required for ATA/SCSI)

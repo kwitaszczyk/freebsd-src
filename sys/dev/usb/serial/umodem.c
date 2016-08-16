@@ -298,6 +298,8 @@ DRIVER_MODULE(umodem, uhub, umodem_driver, umodem_devclass, NULL, 0);
 MODULE_DEPEND(umodem, ucom, 1, 1, 1);
 MODULE_DEPEND(umodem, usb, 1, 1, 1);
 MODULE_VERSION(umodem, UMODEM_MODVER);
+USB_PNP_DUAL_INFO(umodem_dual_devs);
+USB_PNP_HOST_INFO(umodem_host_devs);
 
 static int
 umodem_probe(device_t dev)
@@ -556,6 +558,7 @@ umodem_cfg_get_status(struct ucom_softc *ucom, uint8_t *lsr, uint8_t *msr)
 
 	DPRINTF("\n");
 
+	/* XXX Note: sc_lsr is always zero */
 	*lsr = sc->sc_lsr;
 	*msr = sc->sc_msr;
 }

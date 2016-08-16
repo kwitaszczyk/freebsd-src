@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <arpa/inet.h>
 #include <net/altq/altq.h>
 #include <net/altq/altq_cbq.h>
+#include <net/altq/altq_codel.h>
 #include <net/altq/altq_priq.h>
 #include <net/altq/altq_hfsc.h>
 #include <net/altq/altq_fairq.h>
@@ -216,6 +217,8 @@ struct filter_opts {
 #define FOM_TOS		0x04
 #define FOM_KEEP	0x08
 #define FOM_SRCTRACK	0x10
+#define FOM_SETPRIO	0x0400
+#define FOM_PRIO	0x2000
 	struct node_uid		*uid;
 	struct node_gid		*gid;
 	struct {
@@ -239,6 +242,8 @@ struct filter_opts {
 	char			*match_tag;
 	u_int8_t		 match_tag_not;
 	u_int			 rtableid;
+	u_int8_t		 prio;
+	u_int8_t		 set_prio[2];
 	struct {
 		struct node_host	*addr;
 		u_int16_t		port;
@@ -299,7 +304,7 @@ struct pool_opts {
 
 } pool_opts;
 
-
+struct codel_opts	 codel_opts;
 struct node_hfsc_opts	 hfsc_opts;
 struct node_fairq_opts	 fairq_opts;
 struct node_state_opt	*keep_state_defaults = NULL;
@@ -425,6 +430,7 @@ typedef struct {
 		struct pool_opts	 pool_opts;
 		struct node_hfsc_opts	 hfsc_opts;
 		struct node_fairq_opts	 fairq_opts;
+		struct codel_opts	 codel_opts;
 	} v;
 	int lineno;
 } YYSTYPE;
@@ -449,9 +455,9 @@ int	parseport(char *, struct range *r, int);
 %token	REQUIREORDER SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
 %token	ANTISPOOF FOR INCLUDE
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN STATICPORT PROBABILITY
-%token	ALTQ CBQ PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME UPPERLIMIT
-%token	QUEUE PRIORITY QLIMIT HOGS BUCKETS RTABLE
-%token	LOAD RULESET_OPTIMIZATION
+%token	ALTQ CBQ CODEL PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME
+%token	UPPERLIMIT QUEUE PRIORITY QLIMIT HOGS BUCKETS RTABLE TARGET INTERVAL
+%token	LOAD RULESET_OPTIMIZATION PRIO
 %token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
 %token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY
 %token	TAGGED TAG IFBOUND FLOATING STATEPOLICY STATEDEFAULTS ROUTE SETTOS
@@ -466,7 +472,7 @@ int	parseport(char *, struct range *r, int);
 %type	<v.i>			no dir af fragcache optimizer
 %type	<v.i>			sourcetrack flush unaryop statelock
 %type	<v.b>			action nataction natpasslog scrubaction
-%type	<v.b>			flags flag blockspec
+%type	<v.b>			flags flag blockspec prio
 %type	<v.range>		portplain portstar portrange
 %type	<v.hashkey>		hashkey
 %type	<v.proto>		proto proto_list proto_item
@@ -499,8 +505,10 @@ int	parseport(char *, struct range *r, int);
 %type	<v.number>		priqflags_list priqflags_item
 %type	<v.hfsc_opts>		hfscopts_list hfscopts_item hfsc_opts
 %type	<v.fairq_opts>		fairqopts_list fairqopts_item fairq_opts
+%type	<v.codel_opts>		codelopts_list codelopts_item codel_opts
 %type	<v.queue_bwspec>	bandwidth
 %type	<v.filter_opts>		filter_opts filter_opt filter_opts_l
+%type	<v.filter_opts>		filter_sets filter_set filter_sets_l
 %type	<v.antispoof_opts>	antispoof_opts antispoof_opt antispoof_opts_l
 %type	<v.queue_opts>		queue_opts queue_opt queue_opts_l
 %type	<v.scrub_opts>		scrub_opts scrub_opt scrub_opts_l
@@ -886,6 +894,17 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 					YYERROR;
 				}
 			r.match_tag_not = $9.match_tag_not;
+			if ($9.marker & FOM_PRIO) {
+				if ($9.prio == 0)
+					r.prio = PF_PRIO_ZERO;
+				else
+					r.prio = $9.prio;
+			}
+			if ($9.marker & FOM_SETPRIO) {
+				r.set_prio[0] = $9.set_prio[0];
+				r.set_prio[1] = $9.set_prio[1];
+				r.scrub_flags |= PFSTATE_SETPRIO;
+			}
 
 			decide_address_family($8.src.host, &r.af);
 			decide_address_family($8.dst.host, &r.af);
@@ -1194,8 +1213,8 @@ scrub_opt	: NODF	{
 		;
 
 fragcache	: FRAGMENT REASSEMBLE	{ $$ = 0; /* default */ }
-		| FRAGMENT FRAGCROP	{ $$ = PFRULE_FRAGCROP; }
-		| FRAGMENT FRAGDROP	{ $$ = PFRULE_FRAGDROP; }
+		| FRAGMENT FRAGCROP	{ $$ = 0; }
+		| FRAGMENT FRAGDROP	{ $$ = 0; }
 		;
 
 antispoof	: ANTISPOOF logquick antispoof_ifspc af antispoof_opts {
@@ -1470,7 +1489,7 @@ altqif		: ALTQ interface queue_opts QUEUE qassign {
 			a.scheduler = $3.scheduler.qtype;
 			a.qlimit = $3.qlimit;
 			a.tbrsize = $3.tbrsize;
-			if ($5 == NULL) {
+			if ($5 == NULL && $3.scheduler.qtype != ALTQT_CODEL) {
 				yyerror("no child queues specified");
 				YYERROR;
 			}
@@ -1602,13 +1621,22 @@ bandwidth	: STRING {
 
 			bps = strtod($1, &cp);
 			if (cp != NULL) {
+				if (strlen(cp) > 1) {
+					char *cu = cp + 1;
+					if (!strcmp(cu, "Bit") ||
+					    !strcmp(cu, "B") ||
+					    !strcmp(cu, "bit") ||
+					    !strcmp(cu, "b")) {
+						*cu = 0;
+					}
+				}
 				if (!strcmp(cp, "b"))
 					; /* nothing */
-				else if (!strcmp(cp, "Kb"))
+				else if (!strcmp(cp, "K"))
 					bps *= 1000;
-				else if (!strcmp(cp, "Mb"))
+				else if (!strcmp(cp, "M"))
 					bps *= 1000 * 1000;
-				else if (!strcmp(cp, "Gb"))
+				else if (!strcmp(cp, "G"))
 					bps *= 1000 * 1000 * 1000;
 				else if (!strcmp(cp, "%")) {
 					if (bps < 0 || bps > 100) {
@@ -1672,6 +1700,15 @@ scheduler	: CBQ				{
 			$$.qtype = ALTQT_FAIRQ;
 			$$.data.fairq_opts = $3;
 		}
+		| CODEL				{
+			$$.qtype = ALTQT_CODEL;
+			bzero(&$$.data.codel_opts,
+				sizeof(struct codel_opts));
+		}
+		| CODEL '(' codel_opts ')'	{
+			$$.qtype = ALTQT_CODEL;
+			$$.data.codel_opts = $3;
+		}
 		;
 
 cbqflags_list	: cbqflags_item				{ $$ |= $1; }
@@ -1689,6 +1726,8 @@ cbqflags_item	: STRING	{
 				$$ = CBQCLF_RED|CBQCLF_ECN;
 			else if (!strcmp($1, "rio"))
 				$$ = CBQCLF_RIO;
+			else if (!strcmp($1, "codel"))
+				$$ = CBQCLF_CODEL;
 			else {
 				yyerror("unknown cbq flag \"%s\"", $1);
 				free($1);
@@ -1711,6 +1750,8 @@ priqflags_item	: STRING	{
 				$$ = PRCF_RED|PRCF_ECN;
 			else if (!strcmp($1, "rio"))
 				$$ = PRCF_RIO;
+			else if (!strcmp($1, "codel"))
+				$$ = PRCF_CODEL;
 			else {
 				yyerror("unknown priq flag \"%s\"", $1);
 				free($1);
@@ -1811,6 +1852,8 @@ hfscopts_item	: LINKSHARE bandwidth				{
 				hfsc_opts.flags |= HFCF_RED|HFCF_ECN;
 			else if (!strcmp($1, "rio"))
 				hfsc_opts.flags |= HFCF_RIO;
+			else if (!strcmp($1, "codel"))
+				hfsc_opts.flags |= HFCF_CODEL;
 			else {
 				yyerror("unknown hfsc flag \"%s\"", $1);
 				free($1);
@@ -1866,8 +1909,49 @@ fairqopts_item	: LINKSHARE bandwidth				{
 				fairq_opts.flags |= FARF_RED|FARF_ECN;
 			else if (!strcmp($1, "rio"))
 				fairq_opts.flags |= FARF_RIO;
+			else if (!strcmp($1, "codel"))
+				fairq_opts.flags |= FARF_CODEL;
 			else {
 				yyerror("unknown fairq flag \"%s\"", $1);
+				free($1);
+				YYERROR;
+			}
+			free($1);
+		}
+		;
+
+codel_opts	:	{
+				bzero(&codel_opts,
+				    sizeof(struct codel_opts));
+			}
+		    codelopts_list				{
+			$$ = codel_opts;
+		}
+		;
+
+codelopts_list	: codelopts_item
+		| codelopts_list comma codelopts_item
+		;
+
+codelopts_item	: INTERVAL number				{
+			if (codel_opts.interval) {
+				yyerror("interval already specified");
+				YYERROR;
+			}
+			codel_opts.interval = $2;
+		}
+		| TARGET number					{
+			if (codel_opts.target) {
+				yyerror("target already specified");
+				YYERROR;
+			}
+			codel_opts.target = $2;
+		}
+		| STRING					{
+			if (!strcmp($1, "ecn"))
+				codel_opts.ecn = 1;
+			else {
+				yyerror("unknown codel option \"%s\"", $1);
 				free($1);
 				YYERROR;
 			}
@@ -1945,6 +2029,18 @@ pfrule		: action dir logquick interface route af proto fromto
 			r.quick = $3.quick;
 			r.prob = $9.prob;
 			r.rtableid = $9.rtableid;
+
+			if ($9.marker & FOM_PRIO) {
+				if ($9.prio == 0)
+					r.prio = PF_PRIO_ZERO;
+				else
+					r.prio = $9.prio;
+			}
+			if ($9.marker & FOM_SETPRIO) {
+				r.set_prio[0] = $9.set_prio[0];
+				r.set_prio[1] = $9.set_prio[1];
+				r.scrub_flags |= PFSTATE_SETPRIO;
+			}
 
 			r.af = $6;
 			if ($9.tag)
@@ -2366,6 +2462,18 @@ filter_opt	: USER uids {
 			filter_opts.marker |= FOM_ICMP;
 			filter_opts.icmpspec = $1;
 		}
+		| PRIO NUMBER {
+			if (filter_opts.marker & FOM_PRIO) {
+				yyerror("prio cannot be redefined");
+				YYERROR;
+			}
+			if ($2 < 0 || $2 > PF_PRIO_MAX) {
+				yyerror("prio must be 0 - %u", PF_PRIO_MAX);
+				YYERROR;
+			}
+			filter_opts.marker |= FOM_PRIO;
+			filter_opts.prio = $2;
+		}
 		| TOS tos {
 			if (filter_opts.marker & FOM_TOS) {
 				yyerror("tos cannot be redefined");
@@ -2463,6 +2571,42 @@ filter_opt	: USER uids {
 #else
 			filter_opts.divert.port = 1;	/* some random value */
 #endif
+		}
+		| filter_sets
+		;
+
+filter_sets	: SET '(' filter_sets_l ')'	{ $$ = filter_opts; }
+		| SET filter_set		{ $$ = filter_opts; }
+		;
+
+filter_sets_l	: filter_sets_l comma filter_set
+		| filter_set
+		;
+
+filter_set	: prio {
+			if (filter_opts.marker & FOM_SETPRIO) {
+				yyerror("prio cannot be redefined");
+				YYERROR;
+			}
+			filter_opts.marker |= FOM_SETPRIO;
+			filter_opts.set_prio[0] = $1.b1;
+			filter_opts.set_prio[1] = $1.b2;
+		}
+prio		: PRIO NUMBER {
+			if ($2 < 0 || $2 > PF_PRIO_MAX) {
+				yyerror("prio must be 0 - %u", PF_PRIO_MAX);
+				YYERROR;
+			}
+			$$.b1 = $$.b2 = $2;
+		}
+		| PRIO '(' NUMBER comma NUMBER ')' {
+			if ($3 < 0 || $3 > PF_PRIO_MAX ||
+			    $5 < 0 || $5 > PF_PRIO_MAX) {
+				yyerror("prio must be 0 - %u", PF_PRIO_MAX);
+				YYERROR;
+			}
+			$$.b1 = $3;
+			$$.b2 = $5;
 		}
 		;
 
@@ -4800,7 +4944,8 @@ expand_altq(struct pf_altq *a, struct node_if *interfaces,
 
 	if ((pf->loadopt & PFCTL_FLAG_ALTQ) == 0) {
 		FREE_LIST(struct node_if, interfaces);
-		FREE_LIST(struct node_queue, nqueues);
+		if (nqueues)
+			FREE_LIST(struct node_queue, nqueues);
 		return (0);
 	}
 
@@ -4891,7 +5036,8 @@ expand_altq(struct pf_altq *a, struct node_if *interfaces,
 		}
 	);
 	FREE_LIST(struct node_if, interfaces);
-	FREE_LIST(struct node_queue, nqueues);
+	if (nqueues)
+		FREE_LIST(struct node_queue, nqueues);
 
 	return (errs);
 }
@@ -5297,6 +5443,7 @@ lookup(char *s)
 		{ "buckets",		BUCKETS},
 		{ "cbq",		CBQ},
 		{ "code",		CODE},
+		{ "codelq",		CODEL},
 		{ "crop",		FRAGCROP},
 		{ "debug",		DEBUG},
 		{ "divert-reply",	DIVERTREPLY},
@@ -5326,6 +5473,7 @@ lookup(char *s)
 		{ "include",		INCLUDE},
 		{ "inet",		INET},
 		{ "inet6",		INET6},
+		{ "interval",		INTERVAL},
 		{ "keep",		KEEP},
 		{ "label",		LABEL},
 		{ "limit",		LIMIT},
@@ -5354,6 +5502,7 @@ lookup(char *s)
 		{ "overload",		OVERLOAD},
 		{ "pass",		PASS},
 		{ "port",		PORT},
+		{ "prio",		PRIO},
 		{ "priority",		PRIORITY},
 		{ "priq",		PRIQ},
 		{ "probability",	PROBABILITY},
@@ -5395,6 +5544,7 @@ lookup(char *s)
 		{ "table",		TABLE},
 		{ "tag",		TAG},
 		{ "tagged",		TAGGED},
+		{ "target",		TARGET},
 		{ "tbrsize",		TBRSIZE},
 		{ "timeout",		TIMEOUT},
 		{ "to",			TO},
@@ -6100,7 +6250,7 @@ rt_tableid_max(void)
 	/*
 	 * As the OpenBSD code only compares > and not >= we need to adjust
 	 * here given we only accept values of 0..n and want to avoid #ifdefs
-	 * in the grammer.
+	 * in the grammar.
 	 */
 	return (fibs - 1);
 #else

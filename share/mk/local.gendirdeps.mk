@@ -3,16 +3,17 @@
 # we need a keyword, this noise is to prevent it being expanded
 GENDIRDEPS_HEADER= echo '\# ${FreeBSD:L:@v@$$$v$$ @:M*F*}';
 
-# supress optional/auto dependecies
+# suppress optional/auto dependencies
 # local.dirdeps.mk will put them in if necessary
 GENDIRDEPS_FILTER+= \
+	Nbin/cat.host \
 	Ngnu/lib/libssp/libssp_nonshared \
 	Ncddl/usr.bin/ctf* \
-	Nlib/clang/include \
 	Nlib/libc_nonshared \
 	Ntargets/pseudo/stage* \
 	Ntools/*
 
+# Exclude toolchain which is handled special.
 .if ${RELDIR:Mtargets*} == ""
 .if ${RELDIR:Nusr.bin/clang/*:Ngnu/usr.bin/cc/*:Nlib/clang*} != ""
 GENDIRDEPS_FILTER.host+= \
@@ -20,11 +21,26 @@ GENDIRDEPS_FILTER.host+= \
 	Ngnu/usr.bin/cc/* \
 
 .endif
-GENDIRDEPS_FILTER+= \
-	Nusr.bin/clang/clang.host \
+GENDIRDEPS_FILTER_HOST_TOOLS+= \
+	Nlib/clang/include \
+	Nusr.bin/addr2line \
+	Nusr.bin/ar \
+	Nusr.bin/clang/clang \
+	Nusr.bin/elfcopy \
+	Nusr.bin/elfdump \
+	Nusr.bin/nm \
+	Nusr.bin/readelf \
+	Nusr.bin/size \
+	Nusr.bin/strings \
+	Nusr.bin/strip \
 	Ngnu/usr.bin/cc* \
-	Ngnu/usr.bin/binutils*.host \
+	Ngnu/usr.bin/binutils* \
 
+.if ${MACHINE} != "host"
+GENDIRDEPS_FILTER+=	${GENDIRDEPS_FILTER_HOST_TOOLS:C,$,.host,}
+.else
+GENDIRDEPS_FILTER+=	${GENDIRDEPS_FILTER_HOST_TOOLS}
+.endif
 .endif
 
 GENDIRDEPS_FILTER+= ${GENDIRDEPS_FILTER.${MACHINE}:U}
@@ -44,7 +60,3 @@ GENDIRDEPS_FILTER_VARS+= \
 
 GENDIRDEPS_FILTER+= ${GENDIRDEPS_FILTER_DIR_VARS:@v@S,${$v},_{${v}},@}
 GENDIRDEPS_FILTER+= ${GENDIRDEPS_FILTER_VARS:@v@S,/${$v}/,/_{${v}}/,@:NS,//,*:u}
-
-# handle the non-standard way that gnu/usr.bin/groff/tmac is staged
-GENDIRDEPS_FILTER+= C,.*usr/share/tmac.*stage,gnu/usr.bin/groff/tmac,
-

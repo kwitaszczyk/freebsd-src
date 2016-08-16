@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+PACKAGE=lib${LIB}
 LIB=		lzma
 LZMADIR=	${.CURDIR}/../../contrib/xz/src/liblzma
 
@@ -154,10 +155,11 @@ CFLAGS+=	-DSYMBOL_VERSIONING
 
 CLEANFILES+=	liblzma.pc
 
-.if !defined(LIBRARIES_ONLY)
-all: liblzma.pc
+FILES=		liblzma.pc
+FILESDIR=	${LIBDATADIR}/pkgconfig
+
 liblzma.pc: liblzma.pc.in
-	@sed -e 's,@prefix@,/usr,g ; \
+	sed -e 's,@prefix@,/usr,g ; \
 		s,@exec_prefix@,/usr,g  ; \
 		s,@libdir@,/usr/lib,g ; \
 		s,@includedir@,/usr/include,g ; \
@@ -165,10 +167,5 @@ liblzma.pc: liblzma.pc.in
 		s,@PACKAGE_VERSION@,${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH},g ; \
 		s,@PTHREAD_CFLAGS@,,g ; \
 		s,@PTHREAD_LIBS@,,g' ${.ALLSRC} > ${.TARGET}
-
-beforeinstall:
-	@${INSTALL} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
-		liblzma.pc ${DESTDIR}${LIBDATADIR}/pkgconfig
-.endif
 
 .include <bsd.lib.mk>

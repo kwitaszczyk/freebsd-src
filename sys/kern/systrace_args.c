@@ -290,11 +290,6 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 1;
 		break;
 	}
-	/* pipe */
-	case 42: {
-		*n_args = 0;
-		break;
-	}
 	/* getegid */
 	case 43: {
 		*n_args = 0;
@@ -1603,30 +1598,6 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		struct aio_error_args *p = params;
 		uarg[0] = (intptr_t) p->aiocbp; /* struct aiocb * */
 		*n_args = 1;
-		break;
-	}
-	/* oaio_read */
-	case 318: {
-		struct oaio_read_args *p = params;
-		uarg[0] = (intptr_t) p->aiocbp; /* struct oaiocb * */
-		*n_args = 1;
-		break;
-	}
-	/* oaio_write */
-	case 319: {
-		struct oaio_write_args *p = params;
-		uarg[0] = (intptr_t) p->aiocbp; /* struct oaiocb * */
-		*n_args = 1;
-		break;
-	}
-	/* olio_listio */
-	case 320: {
-		struct olio_listio_args *p = params;
-		iarg[0] = p->mode; /* int */
-		uarg[1] = (intptr_t) p->acb_list; /* struct oaiocb *const * */
-		iarg[2] = p->nent; /* int */
-		uarg[3] = (intptr_t) p->sig; /* struct osigevent * */
-		*n_args = 4;
 		break;
 	}
 	/* yield */
@@ -3337,6 +3308,24 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 4;
 		break;
 	}
+	/* numa_getaffinity */
+	case 548: {
+		struct numa_getaffinity_args *p = params;
+		iarg[0] = p->which; /* cpuwhich_t */
+		iarg[1] = p->id; /* id_t */
+		uarg[2] = (intptr_t) p->policy; /* struct vm_domain_policy_entry * */
+		*n_args = 3;
+		break;
+	}
+	/* numa_setaffinity */
+	case 549: {
+		struct numa_setaffinity_args *p = params;
+		iarg[0] = p->which; /* cpuwhich_t */
+		iarg[1] = p->id; /* id_t */
+		uarg[2] = (intptr_t) p->policy; /* const struct vm_domain_policy_entry * */
+		*n_args = 3;
+		break;
+	}
 	default:
 		*n_args = 0;
 		break;
@@ -3780,9 +3769,6 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		default:
 			break;
 		};
-		break;
-	/* pipe */
-	case 42:
 		break;
 	/* getegid */
 	case 43:
@@ -5876,45 +5862,6 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		switch(ndx) {
 		case 0:
 			p = "struct aiocb *";
-			break;
-		default:
-			break;
-		};
-		break;
-	/* oaio_read */
-	case 318:
-		switch(ndx) {
-		case 0:
-			p = "struct oaiocb *";
-			break;
-		default:
-			break;
-		};
-		break;
-	/* oaio_write */
-	case 319:
-		switch(ndx) {
-		case 0:
-			p = "struct oaiocb *";
-			break;
-		default:
-			break;
-		};
-		break;
-	/* olio_listio */
-	case 320:
-		switch(ndx) {
-		case 0:
-			p = "int";
-			break;
-		case 1:
-			p = "struct oaiocb *const *";
-			break;
-		case 2:
-			p = "int";
-			break;
-		case 3:
-			p = "struct osigevent *";
 			break;
 		default:
 			break;
@@ -8883,6 +8830,38 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			break;
 		};
 		break;
+	/* numa_getaffinity */
+	case 548:
+		switch(ndx) {
+		case 0:
+			p = "cpuwhich_t";
+			break;
+		case 1:
+			p = "id_t";
+			break;
+		case 2:
+			p = "struct vm_domain_policy_entry *";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* numa_setaffinity */
+	case 549:
+		switch(ndx) {
+		case 0:
+			p = "cpuwhich_t";
+			break;
+		case 1:
+			p = "id_t";
+			break;
+		case 2:
+			p = "const struct vm_domain_policy_entry *";
+			break;
+		default:
+			break;
+		};
+		break;
 	default:
 		break;
 	};
@@ -9053,8 +9032,6 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;
-	/* pipe */
-	case 42:
 	/* getegid */
 	case 43:
 	/* profil */
@@ -9557,7 +9534,7 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* msgrcv */
 	case 227:
 		if (ndx == 0 || ndx == 1)
-			p = "int";
+			p = "ssize_t";
 		break;
 	/* shmat */
 	case 228:
@@ -9809,7 +9786,7 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* aio_return */
 	case 314:
 		if (ndx == 0 || ndx == 1)
-			p = "int";
+			p = "ssize_t";
 		break;
 	/* aio_suspend */
 	case 315:
@@ -9823,21 +9800,6 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* aio_error */
 	case 317:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
-	/* oaio_read */
-	case 318:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
-	/* oaio_write */
-	case 319:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
-	/* olio_listio */
-	case 320:
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;
@@ -10000,7 +9962,7 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* aio_waitcomplete */
 	case 359:
 		if (ndx == 0 || ndx == 1)
-			p = "int";
+			p = "ssize_t";
 		break;
 	/* getresuid */
 	case 360:
@@ -10803,6 +10765,16 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* utimensat */
 	case 547:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* numa_getaffinity */
+	case 548:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* numa_setaffinity */
+	case 549:
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;

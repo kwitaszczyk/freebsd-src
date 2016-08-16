@@ -47,6 +47,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <vis.h>
 
 #include "jailp.h"
 
@@ -91,9 +92,13 @@ next_command(struct cfjail *j)
 	int create_failed, stopping;
 
 	if (paralimit == 0) {
-		requeue(j, &runnable);
+		if (j->flags & JF_FROM_RUNQ)
+			requeue_head(j, &runnable);
+		else
+			requeue(j, &runnable);
 		return 1;
 	}
+	j->flags &= ~JF_FROM_RUNQ;
 	create_failed = (j->flags & (JF_STOP | JF_FAILED)) == JF_FAILED;
 	stopping = (j->flags & JF_STOP) != 0;
 	comparam = *j->comparam;
@@ -159,20 +164,23 @@ next_command(struct cfjail *j)
 int
 finish_command(struct cfjail *j)
 {
+	struct cfjail *rj;
 	int error;
 
 	if (!(j->flags & JF_SLEEPQ))
 		return 0;
 	j->flags &= ~JF_SLEEPQ;
-	if (*j->comparam == IP_STOP_TIMEOUT)
-	{
+	if (*j->comparam == IP_STOP_TIMEOUT) {
 		j->flags &= ~JF_TIMEOUT;
 		j->pstatus = 0;
 		return 0;
 	}
 	paralimit++;
-	if (!TAILQ_EMPTY(&runnable))
-		requeue(TAILQ_FIRST(&runnable), &ready);
+	if (!TAILQ_EMPTY(&runnable)) {
+		rj = TAILQ_FIRST(&runnable);
+		rj->flags |= JF_FROM_RUNQ;
+		requeue(rj, &ready);
+	}
 	error = 0;
 	if (j->flags & JF_TIMEOUT) {
 		j->flags &= ~JF_TIMEOUT;
@@ -258,7 +266,7 @@ next_proc(int nonblock)
 }
 
 /*
- * Run a single command for a jail, possible inside the jail.
+ * Run a single command for a jail, possibly inside the jail.
  */
 static int
 run_command(struct cfjail *j)
@@ -444,8 +452,14 @@ run_command(struct cfjail *j)
 		strcpy(comcs, comstring->s);
 		argc = 0;
 		for (cs = strtok(comcs, " \t\f\v\r\n"); cs && argc < 4;
-		     cs = strtok(NULL, " \t\f\v\r\n"))
+		     cs = strtok(NULL, " \t\f\v\r\n")) {
+			if (argc <= 1 && strunvis(cs, cs) < 0) {
+				jail_warnx(j, "%s: %s: fstab parse error",
+				    j->intparams[comparam]->name, comstring->s);
+				return -1;
+			}
 			argv[argc++] = cs;
+		}
 		if (argc == 0)
 			return 0;
 		if (argc < 3) {
@@ -761,7 +775,7 @@ add_proc(struct cfjail *j, pid_t pid)
 	if (j->timeout.tv_sec == 0)
 		requeue(j, &sleeping);
 	else {
-		/* File the jail in the sleep queue acording to its timeout. */
+		/* File the jail in the sleep queue according to its timeout. */
 		TAILQ_REMOVE(j->queue, j, tq);
 		TAILQ_FOREACH(tj, &sleeping, tq) {
 			if (!tj->timeout.tv_sec ||
@@ -877,6 +891,7 @@ get_user_info(struct cfjail *j, const char *username,
 {
 	const struct passwd *pwd;
 
+	errno = 0;
 	*pwdp = pwd = username ? getpwnam(username) : getpwuid(getuid());
 	if (pwd == NULL) {
 		if (errno)

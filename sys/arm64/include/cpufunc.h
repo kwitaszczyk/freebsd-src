@@ -108,6 +108,22 @@ get_mpidr(void)
 	return (mpidr);
 }
 
+static __inline void
+clrex(void)
+{
+
+	/*
+	 * Ensure compiler barrier, otherwise the monitor clear might
+	 * occur too late for us ?
+	 */
+	__asm __volatile("clrex" : : : "memory");
+}
+
+extern int64_t dcache_line_size;
+extern int64_t icache_line_size;
+extern int64_t idcache_line_size;
+extern int64_t dczva_line_size;
+
 #define	cpu_nullop()			arm64_nullop()
 #define	cpufunc_nullop()		arm64_nullop()
 #define	cpu_setttb(a)			arm64_setttb(a)

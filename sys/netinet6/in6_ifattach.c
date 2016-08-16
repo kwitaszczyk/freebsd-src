@@ -39,7 +39,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/sockio.h>
 #include <sys/jail.h>
 #include <sys/kernel.h>
+#include <sys/lock.h>
 #include <sys/proc.h>
+#include <sys/rmlock.h>
 #include <sys/syslog.h>
 #include <sys/md5.h>
 
@@ -564,12 +566,6 @@ in6_ifattach_loopback(struct ifnet *ifp)
 	ifra.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 	ifra.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
 
-	/* we don't need to perform DAD on loopback interfaces. */
-	ifra.ifra_flags |= IN6_IFF_NODAD;
-
-	/* skip registration to the prefix list. XXX should be temporary. */
-	ifra.ifra_flags |= IN6_IFF_NOPFX;
-
 	/*
 	 * We are sure that this is a newly assigned address, so we can set
 	 * NULL to the 3rd arg.
@@ -765,19 +761,30 @@ in6_ifattach(struct ifnet *ifp, struct ifnet *altifp)
 
 /*
  * NOTE: in6_ifdetach() does not support loopback if at this moment.
- * We don't need this function in bsdi, because interfaces are never removed
- * from the ifnet list in bsdi.
+ *
+ * When shutting down a VNET we clean up layers top-down.  In that case
+ * upper layer protocols (ulp) are cleaned up already and locks are destroyed
+ * and we must not call into these cleanup functions anymore, thus purgeulp
+ * is set to 0 in that case by in6_ifdetach_destroy().
+ * The normal case of destroying a (cloned) interface still needs to cleanup
+ * everything related to the interface and will have purgeulp set to 1.
  */
-void
-in6_ifdetach(struct ifnet *ifp)
+static void
+_in6_ifdetach(struct ifnet *ifp, int purgeulp)
 {
 	struct ifaddr *ifa, *next;
 
 	if (ifp->if_afdata[AF_INET6] == NULL)
 		return;
 
-	/* remove neighbor management table */
-	nd6_purge(ifp);
+	/*
+	 * Remove neighbor management table.
+	 * Enabling the nd6_purge will panic on vmove for interfaces on VNET
+	 * teardown as the IPv6 layer is cleaned up already and the locks
+	 * are destroyed.
+	 */
+	if (purgeulp)
+		nd6_purge(ifp);
 
 	/*
 	 * nuke any of IPv6 addresses we have
@@ -788,9 +795,11 @@ in6_ifdetach(struct ifnet *ifp)
 			continue;
 		in6_purgeaddr(ifa);
 	}
-	in6_pcbpurgeif0(&V_udbinfo, ifp);
-	in6_pcbpurgeif0(&V_ulitecbinfo, ifp);
-	in6_pcbpurgeif0(&V_ripcbinfo, ifp);
+	if (purgeulp) {
+		in6_pcbpurgeif0(&V_udbinfo, ifp);
+		in6_pcbpurgeif0(&V_ulitecbinfo, ifp);
+		in6_pcbpurgeif0(&V_ripcbinfo, ifp);
+	}
 	/* leave from all multicast groups joined */
 	in6_purgemaddrs(ifp);
 
@@ -802,7 +811,22 @@ in6_ifdetach(struct ifnet *ifp)
 	 * prefixes after removing all addresses above.
 	 * (Or can we just delay calling nd6_purge until at this point?)
 	 */
-	nd6_purge(ifp);
+	if (purgeulp)
+		nd6_purge(ifp);
+}
+
+void
+in6_ifdetach(struct ifnet *ifp)
+{
+
+	_in6_ifdetach(ifp, 1);
+}
+
+void
+in6_ifdetach_destroy(struct ifnet *ifp)
+{
+
+	_in6_ifdetach(ifp, 0);
 }
 
 int
@@ -894,3 +918,29 @@ in6_purgemaddrs(struct ifnet *ifp)
 
 	IN6_MULTI_UNLOCK();
 }
+
+void
+in6_ifattach_destroy(void)
+{
+
+	callout_drain(&V_in6_tmpaddrtimer_ch);
+}
+
+static void
+in6_ifattach_init(void *dummy)
+{
+
+	/* Timer for regeneranation of temporary addresses randomize ID. */
+	callout_init(&V_in6_tmpaddrtimer_ch, 0);
+	callout_reset(&V_in6_tmpaddrtimer_ch,
+	    (V_ip6_temp_preferred_lifetime - V_ip6_desync_factor -
+	    V_ip6_temp_regen_advance) * hz,
+	    in6_tmpaddrtimer, curvnet);
+}
+
+/*
+ * Cheat.
+ * This must be after route_init(), which is now SI_ORDER_THIRD.
+ */
+SYSINIT(in6_ifattach_init, SI_SUB_PROTO_DOMAIN, SI_ORDER_MIDDLE,
+    in6_ifattach_init, NULL);

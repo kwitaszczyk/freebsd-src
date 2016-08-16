@@ -38,6 +38,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_callout_profiling.h"
+#include "opt_ddb.h"
 #if defined(__arm__)
 #include "opt_timer.h"
 #endif
@@ -60,6 +61,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/smp.h>
 
+#ifdef DDB
+#include <ddb/ddb.h>
+#include <machine/_inttypes.h>
+#endif
+
 #ifdef SMP
 #include <machine/cpu.h>
 #endif
@@ -69,10 +75,8 @@ DPCPU_DECLARE(sbintime_t, hardclocktime);
 #endif
 
 SDT_PROVIDER_DEFINE(callout_execute);
-SDT_PROBE_DEFINE1(callout_execute, kernel, , callout__start,
-    "struct callout *");
-SDT_PROBE_DEFINE1(callout_execute, kernel, , callout__end,
-    "struct callout *");
+SDT_PROBE_DEFINE1(callout_execute, , , callout__start, "struct callout *");
+SDT_PROBE_DEFINE1(callout_execute, , , callout__end, "struct callout *");
 
 #ifdef CALLOUT_PROFILING
 static int avg_depth;
@@ -136,6 +140,7 @@ u_int callwheelsize, callwheelmask;
  */
 struct cc_exec {
 	struct callout		*cc_curr;
+	void			(*cc_drain)(void *);
 #ifdef SMP
 	void			(*ce_migration_func)(void *);
 	void			*ce_migration_arg;
@@ -170,6 +175,7 @@ struct callout_cpu {
 #define	callout_migrating(c)	((c)->c_iflags & CALLOUT_DFRMIGRATION)
 
 #define	cc_exec_curr(cc, dir)		cc->cc_exec_entity[dir].cc_curr
+#define	cc_exec_drain(cc, dir)		cc->cc_exec_entity[dir].cc_drain
 #define	cc_exec_next(cc)		cc->cc_next
 #define	cc_exec_cancel(cc, dir)		cc->cc_exec_entity[dir].cc_cancel
 #define	cc_exec_waiting(cc, dir)	cc->cc_exec_entity[dir].cc_waiting
@@ -679,6 +685,7 @@ softclock_call_cc(struct callout *c, struct callout_cpu *cc,
 	
 	cc_exec_curr(cc, direct) = c;
 	cc_exec_cancel(cc, direct) = false;
+	cc_exec_drain(cc, direct) = NULL;
 	CC_UNLOCK(cc);
 	if (c_lock != NULL) {
 		class->lc_lock(c_lock, lock_status);
@@ -718,9 +725,9 @@ softclock_call_cc(struct callout *c, struct callout_cpu *cc,
 	sbt1 = sbinuptime();
 #endif
 	THREAD_NO_SLEEPING();
-	SDT_PROBE(callout_execute, kernel, , callout__start, c, 0, 0, 0, 0);
+	SDT_PROBE1(callout_execute, , , callout__start, c);
 	c_func(c_arg);
-	SDT_PROBE(callout_execute, kernel, , callout__end, c, 0, 0, 0, 0);
+	SDT_PROBE1(callout_execute, , , callout__end, c);
 	THREAD_SLEEPING_OK();
 #if defined(DIAGNOSTIC) || defined(CALLOUT_PROFILING)
 	sbt2 = sbinuptime();
@@ -744,6 +751,15 @@ skip:
 	CC_LOCK(cc);
 	KASSERT(cc_exec_curr(cc, direct) == c, ("mishandled cc_curr"));
 	cc_exec_curr(cc, direct) = NULL;
+	if (cc_exec_drain(cc, direct)) {
+		void (*drain)(void *);
+		
+		drain = cc_exec_drain(cc, direct);
+		cc_exec_drain(cc, direct) = NULL;
+		CC_UNLOCK(cc);
+		drain(c_arg);
+		CC_LOCK(cc);
+	}
 	if (cc_exec_waiting(cc, direct)) {
 		/*
 		 * There is someone waiting for the
@@ -929,6 +945,56 @@ callout_handle_init(struct callout_handle *handle)
 	handle->callout = NULL;
 }
 
+void
+callout_when(sbintime_t sbt, sbintime_t precision, int flags,
+    sbintime_t *res, sbintime_t *prec_res)
+{
+	sbintime_t to_sbt, to_pr;
+
+	if ((flags & (C_ABSOLUTE | C_PRECALC)) != 0) {
+		*res = sbt;
+		*prec_res = precision;
+		return;
+	}
+	if ((flags & C_HARDCLOCK) != 0 && sbt < tick_sbt)
+		sbt = tick_sbt;
+	if ((flags & C_HARDCLOCK) != 0 ||
+#ifdef NO_EVENTTIMERS
+	    sbt >= sbt_timethreshold) {
+		to_sbt = getsbinuptime();
+
+		/* Add safety belt for the case of hz > 1000. */
+		to_sbt += tc_tick_sbt - tick_sbt;
+#else
+	    sbt >= sbt_tickthreshold) {
+		/*
+		 * Obtain the time of the last hardclock() call on
+		 * this CPU directly from the kern_clocksource.c.
+		 * This value is per-CPU, but it is equal for all
+		 * active ones.
+		 */
+#ifdef __LP64__
+		to_sbt = DPCPU_GET(hardclocktime);
+#else
+		spinlock_enter();
+		to_sbt = DPCPU_GET(hardclocktime);
+		spinlock_exit();
+#endif
+#endif
+		if ((flags & C_HARDCLOCK) == 0)
+			to_sbt += tick_sbt;
+	} else
+		  to_sbt = sbinuptime();
+	if (SBT_MAX - to_sbt < sbt)
+		to_sbt = SBT_MAX;
+	else
+		to_sbt += sbt;
+	*res = to_sbt;
+	to_pr = ((C_PRELGET(flags) < 0) ? sbt >> tc_precexp :
+	    sbt >> C_PRELGET(flags));
+	*prec_res = to_pr > precision ? to_pr : precision;
+}
+
 /*
  * New interface; clients allocate their own callout structures.
  *
@@ -946,10 +1012,10 @@ callout_handle_init(struct callout_handle *handle)
  * callout_deactivate() - marks the callout as having been serviced
  */
 int
-callout_reset_sbt_on(struct callout *c, sbintime_t sbt, sbintime_t precision,
+callout_reset_sbt_on(struct callout *c, sbintime_t sbt, sbintime_t prec,
     void (*ftn)(void *), void *arg, int cpu, int flags)
 {
-	sbintime_t to_sbt, pr;
+	sbintime_t to_sbt, precision;
 	struct callout_cpu *cc;
 	int cancelled, direct;
 	int ignore_cpu=0;
@@ -962,47 +1028,8 @@ callout_reset_sbt_on(struct callout *c, sbintime_t sbt, sbintime_t precision,
 		/* Invalid CPU spec */
 		panic("Invalid CPU in callout %d", cpu);
 	}
-	if (flags & C_ABSOLUTE) {
-		to_sbt = sbt;
-	} else {
-		if ((flags & C_HARDCLOCK) && (sbt < tick_sbt))
-			sbt = tick_sbt;
-		if ((flags & C_HARDCLOCK) ||
-#ifdef NO_EVENTTIMERS
-		    sbt >= sbt_timethreshold) {
-			to_sbt = getsbinuptime();
+	callout_when(sbt, prec, flags, &to_sbt, &precision);
 
-			/* Add safety belt for the case of hz > 1000. */
-			to_sbt += tc_tick_sbt - tick_sbt;
-#else
-		    sbt >= sbt_tickthreshold) {
-			/*
-			 * Obtain the time of the last hardclock() call on
-			 * this CPU directly from the kern_clocksource.c.
-			 * This value is per-CPU, but it is equal for all
-			 * active ones.
-			 */
-#ifdef __LP64__
-			to_sbt = DPCPU_GET(hardclocktime);
-#else
-			spinlock_enter();
-			to_sbt = DPCPU_GET(hardclocktime);
-			spinlock_exit();
-#endif
-#endif
-			if ((flags & C_HARDCLOCK) == 0)
-				to_sbt += tick_sbt;
-		} else
-			to_sbt = sbinuptime();
-		if (SBT_MAX - to_sbt < sbt)
-			to_sbt = SBT_MAX;
-		else
-			to_sbt += sbt;
-		pr = ((C_PRELGET(flags) < 0) ? sbt >> tc_precexp :
-		    sbt >> C_PRELGET(flags));
-		if (pr > precision)
-			precision = pr;
-	}
 	/* 
 	 * This flag used to be added by callout_cc_add, but the
 	 * first time you call this we could end up with the
@@ -1032,7 +1059,7 @@ callout_reset_sbt_on(struct callout *c, sbintime_t sbt, sbintime_t precision,
 		 * currently in progress.  If there is a lock then we
 		 * can cancel the callout if it has not really started.
 		 */
-		if (c->c_lock != NULL && cc_exec_cancel(cc, direct))
+		if (c->c_lock != NULL && !cc_exec_cancel(cc, direct))
 			cancelled = cc_exec_cancel(cc, direct) = true;
 		if (cc_exec_waiting(cc, direct)) {
 			/*
@@ -1145,14 +1172,14 @@ callout_schedule(struct callout *c, int to_ticks)
 }
 
 int
-_callout_stop_safe(struct callout *c, int safe)
+_callout_stop_safe(struct callout *c, int flags, void (*drain)(void *))
 {
 	struct callout_cpu *cc, *old_cc;
 	struct lock_class *class;
 	int direct, sq_locked, use_lock;
-	int not_on_a_list;
+	int cancelled, not_on_a_list;
 
-	if (safe)
+	if ((flags & CS_DRAIN) != 0)
 		WITNESS_WARN(WARN_GIANTOK | WARN_SLEEPOK, c->c_lock,
 		    "calling %s", __func__);
 
@@ -1160,7 +1187,7 @@ _callout_stop_safe(struct callout *c, int safe)
 	 * Some old subsystems don't hold Giant while running a callout_stop(),
 	 * so just discard this check for the moment.
 	 */
-	if (!safe && c->c_lock != NULL) {
+	if ((flags & CS_DRAIN) == 0 && c->c_lock != NULL) {
 		if (c->c_lock == &Giant.lock_object)
 			use_lock = mtx_owned(&Giant);
 		else {
@@ -1220,27 +1247,16 @@ again:
 	}
 
 	/*
-	 * If the callout isn't pending, it's not on the queue, so
-	 * don't attempt to remove it from the queue.  We can try to
-	 * stop it by other means however.
+	 * If the callout is running, try to stop it or drain it.
 	 */
-	if (!(c->c_iflags & CALLOUT_PENDING)) {
+	if (cc_exec_curr(cc, direct) == c) {
+		/*
+		 * Succeed we to stop it or not, we must clear the
+		 * active flag - this is what API users expect.
+		 */
 		c->c_flags &= ~CALLOUT_ACTIVE;
 
-		/*
-		 * If it wasn't on the queue and it isn't the current
-		 * callout, then we can't stop it, so just bail.
-		 */
-		if (cc_exec_curr(cc, direct) != c) {
-			CTR3(KTR_CALLOUT, "failed to stop %p func %p arg %p",
-			    c, c->c_func, c->c_arg);
-			CC_UNLOCK(cc);
-			if (sq_locked)
-				sleepq_release(&cc_exec_waiting(cc, direct));
-			return (0);
-		}
-
-		if (safe) {
+		if ((flags & CS_DRAIN) != 0) {
 			/*
 			 * The current callout is running (or just
 			 * about to run) and blocking is allowed, so
@@ -1298,14 +1314,16 @@ again:
 				CC_LOCK(cc);
 			}
 		} else if (use_lock &&
-			   !cc_exec_cancel(cc, direct)) {
+			   !cc_exec_cancel(cc, direct) && (drain == NULL)) {
 			
 			/*
 			 * The current callout is waiting for its
 			 * lock which we hold.  Cancel the callout
 			 * and return.  After our caller drops the
 			 * lock, the callout will be skipped in
-			 * softclock().
+			 * softclock(). This *only* works with a
+			 * callout_stop() *not* callout_drain() or
+			 * callout_async_drain().
 			 */
 			cc_exec_cancel(cc, direct) = true;
 			CTR3(KTR_CALLOUT, "cancelled %p func %p arg %p",
@@ -1351,17 +1369,37 @@ again:
 #endif
 			CTR3(KTR_CALLOUT, "postponing stop %p func %p arg %p",
 			    c, c->c_func, c->c_arg);
+ 			if (drain) {
+				cc_exec_drain(cc, direct) = drain;
+			}
 			CC_UNLOCK(cc);
-			return (0);
+			return ((flags & CS_EXECUTING) != 0);
 		}
 		CTR3(KTR_CALLOUT, "failed to stop %p func %p arg %p",
 		    c, c->c_func, c->c_arg);
-		CC_UNLOCK(cc);
+		if (drain) {
+			cc_exec_drain(cc, direct) = drain;
+		}
 		KASSERT(!sq_locked, ("sleepqueue chain still locked"));
-		return (0);
-	}
+		cancelled = ((flags & CS_EXECUTING) != 0);
+	} else
+		cancelled = 1;
+
 	if (sq_locked)
 		sleepq_release(&cc_exec_waiting(cc, direct));
+
+	if ((c->c_iflags & CALLOUT_PENDING) == 0) {
+		CTR3(KTR_CALLOUT, "failed to stop %p func %p arg %p",
+		    c, c->c_func, c->c_arg);
+		/*
+		 * For not scheduled and not executing callout return
+		 * negative value.
+		 */
+		if (cc_exec_curr(cc, direct) != c)
+			cancelled = -1;
+		CC_UNLOCK(cc);
+		return (cancelled);
+	}
 
 	c->c_iflags &= ~CALLOUT_PENDING;
 	c->c_flags &= ~CALLOUT_ACTIVE;
@@ -1379,7 +1417,7 @@ again:
 	}
 	callout_cc_del(c, cc);
 	CC_UNLOCK(cc);
-	return (1);
+	return (cancelled);
 }
 
 void
@@ -1425,7 +1463,7 @@ _callout_init_lock(struct callout *c, struct lock_object *lock, int flags)
  * which set the timer can do the maintanence the timer was for as close
  * as possible to the originally intended time.  Testing this code for a 
  * week showed that resuming from a suspend resulted in 22 to 25 timers 
- * firing, which seemed independant on whether the suspend was 2 hours or
+ * firing, which seemed independent on whether the suspend was 2 hours or
  * 2 days.  Your milage may vary.   - Ken Key <key@cs.utk.edu>
  */
 void
@@ -1443,11 +1481,11 @@ adjust_timeout_calltodo(struct timeval *time_change)
 	if (time_change->tv_sec < 0)
 		return;
 	else if (time_change->tv_sec <= LONG_MAX / 1000000)
-		delta_ticks = (time_change->tv_sec * 1000000 +
-			       time_change->tv_usec + (tick - 1)) / tick + 1;
+		delta_ticks = howmany(time_change->tv_sec * 1000000 +
+		    time_change->tv_usec, tick) + 1;
 	else if (time_change->tv_sec <= LONG_MAX / hz)
 		delta_ticks = time_change->tv_sec * hz +
-			      (time_change->tv_usec + (tick - 1)) / tick + 1;
+		    howmany(time_change->tv_usec, tick) + 1;
 	else
 		delta_ticks = LONG_MAX;
 
@@ -1594,3 +1632,34 @@ SYSCTL_PROC(_kern, OID_AUTO, callout_stat,
     CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
     0, 0, sysctl_kern_callout_stat, "I",
     "Dump immediate statistic snapshot of the scheduled callouts");
+
+#ifdef DDB
+static void
+_show_callout(struct callout *c)
+{
+
+	db_printf("callout %p\n", c);
+#define	C_DB_PRINTF(f, e)	db_printf("   %s = " f "\n", #e, c->e);
+	db_printf("   &c_links = %p\n", &(c->c_links));
+	C_DB_PRINTF("%" PRId64,	c_time);
+	C_DB_PRINTF("%" PRId64,	c_precision);
+	C_DB_PRINTF("%p",	c_arg);
+	C_DB_PRINTF("%p",	c_func);
+	C_DB_PRINTF("%p",	c_lock);
+	C_DB_PRINTF("%#x",	c_flags);
+	C_DB_PRINTF("%#x",	c_iflags);
+	C_DB_PRINTF("%d",	c_cpu);
+#undef	C_DB_PRINTF
+}
+
+DB_SHOW_COMMAND(callout, db_show_callout)
+{
+
+	if (!have_addr) {
+		db_printf("usage: show callout <struct callout *>\n");
+		return;
+	}
+
+	_show_callout((struct callout *)addr);
+}
+#endif /* DDB */

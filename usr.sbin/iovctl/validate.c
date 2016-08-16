@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014-2015 Sandvine Inc.  All rights reserved.
+ * Copyright (c) 2014-2015 Sandvine Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,10 +29,10 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/iov.h>
+#include <sys/dnv.h>
+#include <sys/nv.h>
 
-#include <dnv.h>
 #include <err.h>
-#include <nv.h>
 #include <regex.h>
 #include <stdlib.h>
 

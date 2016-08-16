@@ -3,6 +3,7 @@
 
 .include <src.opts.mk>
 
+PACKAGE=runtime
 PROG=	ifconfig
 
 SRCS=	ifconfig.c		# base support
@@ -37,8 +38,8 @@ SRCS+=	ifgif.c			# GIF reversed header workaround
 SRCS+=	sfp.c			# SFP/SFP+ information
 LIBADD+=	m
 
-SRCS+=	ifieee80211.c regdomain.c # SIOC[GS]IEEE80211 support
-LIBADD+=	bsdxml sbuf
+SRCS+=	ifieee80211.c		# SIOC[GS]IEEE80211 support
+LIBADD+=	80211
 
 SRCS+=	carp.c			# SIOC[GS]VH support
 SRCS+=	ifgroup.c		# ...

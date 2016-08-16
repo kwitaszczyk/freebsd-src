@@ -68,7 +68,7 @@ setifgrekey(const char *val, int dummy __unused, int s,
 {
 	uint32_t grekey = strtol(val, NULL, 0);
 
-	strncpy(ifr.ifr_name, name, sizeof (ifr.ifr_name));
+	strlcpy(ifr.ifr_name, name, sizeof (ifr.ifr_name));
 	ifr.ifr_data = (caddr_t)&grekey;
 	if (ioctl(s, GRESKEY, (caddr_t)&ifr) < 0)
 		warn("ioctl (set grekey)");
@@ -113,11 +113,9 @@ static struct afswtch af_gre = {
 static __constructor void
 gre_ctor(void)
 {
-#define	N(a)	(sizeof(a) / sizeof(a[0]))
 	size_t i;
 
-	for (i = 0; i < N(gre_cmds);  i++)
+	for (i = 0; i < nitems(gre_cmds);  i++)
 		cmd_register(&gre_cmds[i]);
 	af_register(&af_gre);
-#undef N
 }

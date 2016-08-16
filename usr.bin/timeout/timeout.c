@@ -105,7 +105,7 @@ parse_signal(const char *str)
 	int sig, i;
 	const char *errstr;
 
-	sig = strtonum(str, 0, sys_nsig, &errstr);
+	sig = strtonum(str, 1, sys_nsig - 1, &errstr);
 
 	if (errstr == NULL)
 		return (sig);
@@ -227,7 +227,7 @@ main(int argc, char **argv)
 	argv++;
 
 	if (!foreground) {
-		/* Aquire a reaper */
+		/* Acquire a reaper */
 		if (procctl(P_PID, getpid(), PROC_REAP_ACQUIRE, NULL) == -1)
 			err(EX_OSERR, "Fail to acquire the reaper");
 	}

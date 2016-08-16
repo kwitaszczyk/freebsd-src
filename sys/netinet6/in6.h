@@ -376,11 +376,23 @@ extern const struct in6_addr in6addr_linklocal_allv2routers;
 struct route_in6 {
 	struct	rtentry *ro_rt;
 	struct	llentry *ro_lle;
-	struct	in6_addr *ro_ia6;
-	int		ro_flags;
+	/*
+	 * ro_prepend and ro_plen are only used for bpf to pass in a
+	 * preformed header.  They are not cacheable.
+	 */
+	char		*ro_prepend;
+	uint16_t	ro_plen;
+	uint16_t	ro_flags;
+	uint16_t	ro_mtu;	/* saved ro_rt mtu */
+	uint16_t	spare;
 	struct	sockaddr_in6 ro_dst;
 };
 #endif
+
+#ifdef _KERNEL
+#define MTAG_ABI_IPV6		1444287380	/* IPv6 ABI */
+#define IPV6_TAG_DIRECT		0		/* direct-dispatch IPv6 */
+#endif /* _KERNEL */
 
 /*
  * Options for use with [gs]etsockopt at the IPV6 level.
@@ -485,6 +497,8 @@ struct route_in6 {
 #define	IPV6_FLOWID		67 /* int; flowid of given socket */
 #define	IPV6_FLOWTYPE		68 /* int; flowtype of given socket */
 #define	IPV6_RSSBUCKETID	69 /* int; RSS bucket ID of given socket */
+#define	IPV6_RECVFLOWID		70 /* bool; receive IP6 flowid/flowtype w/ datagram */
+#define	IPV6_RECVRSSBUCKETID	71 /* bool; receive IP6 RSS bucket id w/ datagram */
 
 /*
  * The following option is private; do not use it from user applications.
@@ -623,7 +637,10 @@ struct ip6_mtuinfo {
 					 * receiving IF. */
 #define	IPV6CTL_RFC6204W3	50	/* Accept defroute even when forwarding
 					   enabled */
-#define	IPV6CTL_MAXID		51
+#define	IPV6CTL_INTRQMAXLEN	51	/* max length of IPv6 netisr queue */
+#define	IPV6CTL_INTRDQMAXLEN	52	/* max length of direct IPv6 netisr
+					 * queue */
+#define	IPV6CTL_MAXID		53
 #endif /* __BSD_VISIBLE */
 
 /*

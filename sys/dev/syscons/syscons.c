@@ -3411,7 +3411,7 @@ next_code:
 	sc_touch_scrn_saver();
 
     if (!(flags & SCGETC_CN))
-	random_harvest(&c, sizeof(c), 1, RANDOM_KEYBOARD);
+	random_harvest_queue(&c, sizeof(c), 1, RANDOM_KEYBOARD);
 
     if (scp->kbd_mode != K_XLATE)
 	return KEYCHAR(c);
@@ -3541,7 +3541,7 @@ next_code:
 		if (cold) {
 		    /*
 		     * While devices are being probed, the screen saver need
-		     * to be invoked explictly. XXX
+		     * to be invoked explicitly. XXX
 		     */
 		    if (sc->flags & SC_SCRN_BLANKED) {
 			scsplash_stick(FALSE);

@@ -79,7 +79,7 @@ static void sctp_statesprint(uint32_t state);
 #define	NETSTAT_SCTP_STATES_SHUTDOWN_ACK_SENT	0x8
 #define	NETSTAT_SCTP_STATES_SHUTDOWN_PENDING	0x9
 
-const char *sctpstates[] = {
+static const char *sctpstates[] = {
 	"CLOSED",
 	"BOUND",
 	"LISTEN",
@@ -92,105 +92,26 @@ const char *sctpstates[] = {
 	"SHUTDOWN_PENDING"
 };
 
-LIST_HEAD(xladdr_list, xladdr_entry) xladdr_head;
+static LIST_HEAD(xladdr_list, xladdr_entry) xladdr_head;
 struct xladdr_entry {
 	struct xsctp_laddr *xladdr;
 	LIST_ENTRY(xladdr_entry) xladdr_entries;
 };
 
-LIST_HEAD(xraddr_list, xraddr_entry) xraddr_head;
+static LIST_HEAD(xraddr_list, xraddr_entry) xraddr_head;
 struct xraddr_entry {
 	struct xsctp_raddr *xraddr;
 	LIST_ENTRY(xraddr_entry) xraddr_entries;
 };
 
-/*
- * Construct an Internet address representation.
- * If numeric_addr has been supplied, give
- * numeric value, otherwise try for symbolic name.
- */
 #ifdef INET
-static char *
-inetname(struct in_addr *inp)
-{
-	char *cp;
-	static char line[MAXHOSTNAMELEN];
-	struct hostent *hp;
-	struct netent *np;
-
-	cp = 0;
-	if (!numeric_addr && inp->s_addr != INADDR_ANY) {
-		int net = inet_netof(*inp);
-		int lna = inet_lnaof(*inp);
-
-		if (lna == INADDR_ANY) {
-			np = getnetbyaddr(net, AF_INET);
-			if (np)
-				cp = np->n_name;
-		}
-		if (cp == 0) {
-			hp = gethostbyaddr((char *)inp, sizeof (*inp), AF_INET);
-			if (hp) {
-				cp = hp->h_name;
-				trimdomain(cp, strlen(cp));
-			}
-		}
-	}
-	if (inp->s_addr == INADDR_ANY)
-		strcpy(line, "*");
-	else if (cp) {
-		strlcpy(line, cp, sizeof(line));
-	} else {
-		inp->s_addr = ntohl(inp->s_addr);
-#define	C(x)	((u_int)((x) & 0xff))
-		sprintf(line, "%u.%u.%u.%u", C(inp->s_addr >> 24),
-		    C(inp->s_addr >> 16), C(inp->s_addr >> 8), C(inp->s_addr));
-		inp->s_addr = htonl(inp->s_addr);
-	}
-	return (line);
-}
+char *
+inetname(struct in_addr *inp);
 #endif
 
 #ifdef INET6
-static char ntop_buf[INET6_ADDRSTRLEN];
-
-static char *
-inet6name(struct in6_addr *in6p)
-{
-	char *cp;
-	static char line[50];
-	struct hostent *hp;
-	static char domain[MAXHOSTNAMELEN];
-	static int first = 1;
-
-	if (first && !numeric_addr) {
-		first = 0;
-		if (gethostname(domain, MAXHOSTNAMELEN) == 0 &&
-		    (cp = strchr(domain, '.')))
-			(void) strcpy(domain, cp + 1);
-		else
-			domain[0] = 0;
-	}
-	cp = 0;
-	if (!numeric_addr && !IN6_IS_ADDR_UNSPECIFIED(in6p)) {
-		hp = gethostbyaddr((char *)in6p, sizeof(*in6p), AF_INET6);
-		if (hp) {
-			if ((cp = strchr(hp->h_name, '.')) &&
-			    !strcmp(cp + 1, domain))
-				*cp = 0;
-			cp = hp->h_name;
-		}
-	}
-	if (IN6_IS_ADDR_UNSPECIFIED(in6p))
-		strcpy(line, "*");
-	else if (cp)
-		strcpy(line, cp);
-	else
-		sprintf(line, "%s",
-			inet_ntop(AF_INET6, (void *)in6p, ntop_buf,
-				sizeof(ntop_buf)));
-	return (line);
-}
+char *
+inet6name(struct in6_addr *in6p);
 #endif
 
 static void
@@ -349,7 +270,7 @@ sctp_process_tcb(struct xsctp_tcb *xstcb,
 	xo_open_list("address");
 	xl = LIST_FIRST(&xladdr_head);
 	xr = LIST_FIRST(&xraddr_head);
-	x_max = (xl_total > xr_total) ? xl_total : xr_total;
+	x_max = MAX(xl_total, xr_total);
 	for (i = 0; i < x_max; i++) {
 		xo_open_instance("address");
 
@@ -447,7 +368,8 @@ sctp_process_inpcb(struct xsctp_inpcb *xinpcb,
 		first = 0;
 	}
 	xladdr = (struct xsctp_laddr *)(buf + *offset);
-	if (Lflag && !is_listening) {
+	if ((!aflag && is_listening) ||
+	    (Lflag && !is_listening)) {
 		sctp_skip_xinpcb_ifneed(buf, buflen, offset);
 		return;
 	}
@@ -467,9 +389,10 @@ sctp_process_inpcb(struct xsctp_inpcb *xinpcb,
 		tname = "????";
 
 	if (Lflag) {
-		char buf1[9];
+		char buf1[22];
 
-		snprintf(buf1, 9, "%hu/%hu", xinpcb->qlen, xinpcb->maxqlen);
+		snprintf(buf1, sizeof buf1, "%u/%u", 
+		    xinpcb->qlen, xinpcb->maxqlen);
 		xo_emit("{:protocol/%-6.6s/%s} {:type/%-5.5s/%s} ",
 		    pname, tname);
 		xo_emit("{d:queues/%-8.8s}{e:queue-len/%hu}"
@@ -512,8 +435,10 @@ retry:
 		xo_open_instance("local-address");
 
 		if (xladdr_total == 0) {
-			xo_emit("{:protocol/%-6.6s/%s} {:type/%-5.5s/%s} ",
-			    pname, tname);
+			if (!Lflag) {
+				xo_emit("{:protocol/%-6.6s/%s} "
+				    "{:type/%-5.5s/%s} ", pname, tname);
+			}
 		} else {
 			xo_emit("\n");
 			xo_emit(Lflag ? "{P:/%-21.21s} " : "{P:/%-12.12s} ",
@@ -528,7 +453,7 @@ retry:
 					    "{:state/CLOSED}", " ");
 				} else {
 					xo_emit("{P:/%-45.45s} "
-					    "{:state:LISTEN}", " ");
+					    "{:state/LISTEN}", " ");
 				}
 			} else {
 				if (process_closed) {
@@ -585,7 +510,7 @@ sctp_protopr(u_long off __unused,
 			xo_warn("sysctl: %s", mibvar);
 		return;
 	}
-	if ((buf = malloc(len)) == 0) {
+	if ((buf = malloc(len)) == NULL) {
 		xo_warnx("malloc %lu bytes", (u_long)len);
 		return;
 	}
@@ -614,25 +539,34 @@ sctp_statesprint(uint32_t state)
 	int idx;
 
 	switch (state) {
-	case SCTP_STATE_COOKIE_WAIT:
+	case SCTP_CLOSED:
+		idx = NETSTAT_SCTP_STATES_CLOSED;
+		break;
+	case SCTP_BOUND:
+		idx = NETSTAT_SCTP_STATES_BOUND;
+		break;
+	case SCTP_LISTEN:
+		idx = NETSTAT_SCTP_STATES_LISTEN;
+		break;
+	case SCTP_COOKIE_WAIT:
 		idx = NETSTAT_SCTP_STATES_COOKIE_WAIT;
 		break;
-	case SCTP_STATE_COOKIE_ECHOED:
+	case SCTP_COOKIE_ECHOED:
 		idx = NETSTAT_SCTP_STATES_COOKIE_ECHOED;
 		break;
-	case SCTP_STATE_OPEN:
+	case SCTP_ESTABLISHED:
 		idx = NETSTAT_SCTP_STATES_ESTABLISHED;
 		break;
-	case SCTP_STATE_SHUTDOWN_SENT:
+	case SCTP_SHUTDOWN_SENT:
 		idx = NETSTAT_SCTP_STATES_SHUTDOWN_SENT;
 		break;
-	case SCTP_STATE_SHUTDOWN_RECEIVED:
+	case SCTP_SHUTDOWN_RECEIVED:
 		idx = NETSTAT_SCTP_STATES_SHUTDOWN_RECEIVED;
 		break;
-	case SCTP_STATE_SHUTDOWN_ACK_SENT:
+	case SCTP_SHUTDOWN_ACK_SENT:
 		idx = NETSTAT_SCTP_STATES_SHUTDOWN_ACK_SENT;
 		break;
-	case SCTP_STATE_SHUTDOWN_PENDING:
+	case SCTP_SHUTDOWN_PENDING:
 		idx = NETSTAT_SCTP_STATES_SHUTDOWN_PENDING;
 		break;
 	default:
@@ -649,20 +583,11 @@ sctp_statesprint(uint32_t state)
 void
 sctp_stats(u_long off, const char *name, int af1 __unused, int proto __unused)
 {
-	struct sctpstat sctpstat, zerostat;
-	size_t len = sizeof(sctpstat);
+	struct sctpstat sctpstat;
 
-	if (live) {
-		if (zflag)
-			memset(&zerostat, 0, len);
-		if (sysctlbyname("net.inet.sctp.stats", &sctpstat, &len,
-		    zflag ? &zerostat : NULL, zflag ? len : 0) < 0) {
-			if (errno != ENOENT)
-				xo_warn("sysctl: net.inet.sctp.stats");
-			return;
-		}
-	} else
-		kread(off, &sctpstat, len);
+	if (fetch_stats("net.inet.sctp.stats", off, &sctpstat,
+	    sizeof(sctpstat), kread) != 0)
+		return;
 
 	xo_open_container(name);
 	xo_emit("{T:/%s}:\n", name);

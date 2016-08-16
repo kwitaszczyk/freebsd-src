@@ -104,7 +104,7 @@ const static struct iffam gFamilies[] = {
 	{ AF_ATM,	NG_IFACE_HOOK_ATM	},
 	{ AF_NATM,	NG_IFACE_HOOK_NATM	},
 };
-#define NUM_FAMILIES		(sizeof(gFamilies) / sizeof(*gFamilies))
+#define	NUM_FAMILIES		nitems(gFamilies)
 
 /* Node private data */
 struct ng_iface_private {
@@ -705,7 +705,7 @@ ng_iface_rcvdata(hook_p hook, item_p item)
 		m_freem(m);
 		return (EAFNOSUPPORT);
 	}
-	random_harvest(&(m->m_data), 12, 2, RANDOM_NET_NG);
+	random_harvest_queue(m, sizeof(*m), 2, RANDOM_NET_NG);
 	M_SETFIB(m, ifp->if_fib);
 	netisr_dispatch(isr, m);
 	return (0);
@@ -786,5 +786,5 @@ vnet_ng_iface_uninit(const void *unused)
 
 	delete_unrhdr(V_ng_iface_unit);
 }
-VNET_SYSUNINIT(vnet_ng_iface_uninit, SI_SUB_PSEUDO, SI_ORDER_ANY,
+VNET_SYSUNINIT(vnet_ng_iface_uninit, SI_SUB_INIT_IF, SI_ORDER_ANY,
     vnet_ng_iface_uninit, NULL);

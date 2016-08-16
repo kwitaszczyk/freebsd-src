@@ -89,6 +89,8 @@
  * in the structure may have changed.
  */
 
+#include "opt_compat.h"
+
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -397,14 +399,8 @@ pipe_dtor(struct pipe *dpipe)
  * the zone pick up the pieces via pipeclose().
  */
 int
-kern_pipe(struct thread *td, int fildes[2])
-{
-
-	return (kern_pipe2(td, fildes, 0));
-}
-
-int
-kern_pipe2(struct thread *td, int fildes[2], int flags)
+kern_pipe(struct thread *td, int fildes[2], int flags, struct filecaps *fcaps1,
+    struct filecaps *fcaps2)
 {
 	struct file *rf, *wf;
 	struct pipe *rpipe, *wpipe;
@@ -414,13 +410,13 @@ kern_pipe2(struct thread *td, int fildes[2], int flags)
 	pipe_paircreate(td, &pp);
 	rpipe = &pp->pp_rpipe;
 	wpipe = &pp->pp_wpipe;
-	error = falloc(td, &rf, &fd, flags);
+	error = falloc_caps(td, &rf, &fd, flags, fcaps1);
 	if (error) {
 		pipeclose(rpipe);
 		pipeclose(wpipe);
 		return (error);
 	}
-	/* An extra reference on `rf' has been held for us by falloc(). */
+	/* An extra reference on `rf' has been held for us by falloc_caps(). */
 	fildes[0] = fd;
 
 	fflags = FREAD | FWRITE;
@@ -434,7 +430,7 @@ kern_pipe2(struct thread *td, int fildes[2], int flags)
 	 * side while we are blocked trying to allocate the write side.
 	 */
 	finit(rf, fflags, DTYPE_PIPE, rpipe, &pipeops);
-	error = falloc(td, &wf, &fd, flags);
+	error = falloc_caps(td, &wf, &fd, flags, fcaps2);
 	if (error) {
 		fdclose(td, rf, fildes[0]);
 		fdrop(rf, td);
@@ -442,7 +438,7 @@ kern_pipe2(struct thread *td, int fildes[2], int flags)
 		pipeclose(wpipe);
 		return (error);
 	}
-	/* An extra reference on `wf' has been held for us by falloc(). */
+	/* An extra reference on `wf' has been held for us by falloc_caps(). */
 	finit(wf, fflags, DTYPE_PIPE, wpipe, &pipeops);
 	fdrop(wf, td);
 	fildes[1] = fd;
@@ -451,14 +447,15 @@ kern_pipe2(struct thread *td, int fildes[2], int flags)
 	return (0);
 }
 
+#ifdef COMPAT_FREEBSD10
 /* ARGSUSED */
 int
-sys_pipe(struct thread *td, struct pipe_args *uap)
+freebsd10_pipe(struct thread *td, struct freebsd10_pipe_args *uap __unused)
 {
 	int error;
 	int fildes[2];
 
-	error = kern_pipe(td, fildes);
+	error = kern_pipe(td, fildes, 0, NULL, NULL);
 	if (error)
 		return (error);
 
@@ -467,6 +464,7 @@ sys_pipe(struct thread *td, struct pipe_args *uap)
 
 	return (0);
 }
+#endif
 
 int
 sys_pipe2(struct thread *td, struct pipe2_args *uap)
@@ -475,7 +473,7 @@ sys_pipe2(struct thread *td, struct pipe2_args *uap)
 
 	if (uap->flags & ~(O_CLOEXEC | O_NONBLOCK))
 		return (EINVAL);
-	error = kern_pipe2(td, fildes, uap->flags);
+	error = kern_pipe(td, fildes, uap->flags, NULL, NULL);
 	if (error)
 		return (error);
 	error = copyout(fildes, uap->fildes, 2 * sizeof(int));
@@ -946,9 +944,10 @@ pipe_direct_write(wpipe, uio)
 retry:
 	PIPE_LOCK_ASSERT(wpipe, MA_OWNED);
 	error = pipelock(wpipe, 1);
-	if (wpipe->pipe_state & PIPE_EOF)
+	if (error != 0)
+		goto error1;
+	if ((wpipe->pipe_state & PIPE_EOF) != 0) {
 		error = EPIPE;
-	if (error) {
 		pipeunlock(wpipe);
 		goto error1;
 	}
@@ -1547,7 +1546,7 @@ pipe_stat(fp, ub, active_cred, td)
 		ub->st_size = pipe->pipe_map.cnt;
 	else
 		ub->st_size = pipe->pipe_buffer.cnt;
-	ub->st_blocks = (ub->st_size + ub->st_blksize - 1) / ub->st_blksize;
+	ub->st_blocks = howmany(ub->st_size, ub->st_blksize);
 	ub->st_atim = pipe->pipe_atime;
 	ub->st_mtim = pipe->pipe_mtime;
 	ub->st_ctim = pipe->pipe_ctime;

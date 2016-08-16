@@ -11,7 +11,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -131,7 +131,7 @@ static void	do_symlink(const char *, const char *, const struct stat *);
 static void	makelink(const char *, const char *, const struct stat *);
 static void	install(const char *, const char *, u_long, u_int);
 static void	install_dir(char *);
-static void	metadata_log(const char *, const char *, struct timeval *,
+static void	metadata_log(const char *, const char *, struct timespec *,
 		    const char *, const char *, off_t);
 static int	parseid(const char *, id_t *);
 static void	strip(const char *);
@@ -656,7 +656,15 @@ makelink(const char *from_name, const char *to_name,
 	}
 
 	if (dolink & LN_RELATIVE) {
-		char *cp, *d, *s;
+		char *to_name_copy, *cp, *d, *s;
+
+		if (*from_name != '/') {
+			/* this is already a relative link */
+			do_symlink(from_name, to_name, target_sb);
+			/* XXX: from_name may point outside of destdir. */
+			metadata_log(to_name, "link", NULL, from_name, NULL, 0);
+			return;
+		}
 
 		/* Resolve pathnames. */
 		if (realpath(from_name, src) == NULL)
@@ -666,7 +674,10 @@ makelink(const char *from_name, const char *to_name,
 		 * The last component of to_name may be a symlink,
 		 * so use realpath to resolve only the directory.
 		 */
-		cp = dirname(to_name);
+		to_name_copy = strdup(to_name);
+		if (to_name_copy == NULL)
+			err(EX_OSERR, "%s: strdup", to_name);
+		cp = dirname(to_name_copy);
 		if (realpath(cp, dst) == NULL)
 			err(EX_OSERR, "%s: realpath", cp);
 		/* .. and add the last component. */
@@ -674,9 +685,11 @@ makelink(const char *from_name, const char *to_name,
 			if (strlcat(dst, "/", sizeof(dst)) > sizeof(dst))
 				errx(1, "resolved pathname too long");
 		}
-		cp = basename(to_name);
+		strcpy(to_name_copy, to_name);
+		cp = basename(to_name_copy);
 		if (strlcat(dst, cp, sizeof(dst)) > sizeof(dst))
 			errx(1, "resolved pathname too long");
+		free(to_name_copy);
 
 		/* Trim common path components. */
 		for (s = src, d = dst; *s == *d; s++, d++)
@@ -714,7 +727,7 @@ static void
 install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 {
 	struct stat from_sb, temp_sb, to_sb;
-	struct timeval tvb[2];
+	struct timespec tsb[2];
 	int devnull, files_match, from_fd, serrno, target;
 	int tempcopy, temp_fd, to_fd;
 	char backup[MAXPATHLEN], *p, pathbuf[MAXPATHLEN], tempfile[MAXPATHLEN];
@@ -746,10 +759,7 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 		devnull = 1;
 	}
 
-	if (!dolink)
-		target = (stat(to_name, &to_sb) == 0);
-	else
-		target = (lstat(to_name, &to_sb) == 0);
+	target = (lstat(to_name, &to_sb) == 0);
 
 	if (dolink) {
 		if (target && !safecopy) {
@@ -764,8 +774,7 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 		return;
 	}
 
-	/* Only install to regular files. */
-	if (target && !S_ISREG(to_sb.st_mode)) {
+	if (target && !S_ISREG(to_sb.st_mode) && !S_ISLNK(to_sb.st_mode)) {
 		errno = EFTYPE;
 		warn("%s", to_name);
 		return;
@@ -778,7 +787,7 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 		err(EX_OSERR, "%s", from_name);
 
 	/* If we don't strip, we can compare first. */
-	if (docompare && !dostrip && target) {
+	if (docompare && !dostrip && target && S_ISREG(to_sb.st_mode)) {
 		if ((to_fd = open(to_name, O_RDONLY, 0)) < 0)
 			err(EX_OSERR, "%s", to_name);
 		if (devnull)
@@ -830,7 +839,7 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 	/*
 	 * Compare the stripped temp file with the target.
 	 */
-	if (docompare && dostrip && target) {
+	if (docompare && dostrip && target && S_ISREG(to_sb.st_mode)) {
 		temp_fd = to_fd;
 
 		/* Re-open to_fd using the real target name. */
@@ -853,20 +862,16 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 			 * Need to preserve target file times, though.
 			 */
 			if (to_sb.st_nlink != 1) {
-				tvb[0].tv_sec = to_sb.st_atime;
-				tvb[0].tv_usec = 0;
-				tvb[1].tv_sec = to_sb.st_mtime;
-				tvb[1].tv_usec = 0;
-				(void)utimes(tempfile, tvb);
+				tsb[0] = to_sb.st_atim;
+				tsb[1] = to_sb.st_mtim;
+				(void)utimensat(AT_FDCWD, tempfile, tsb, 0);
 			} else {
 				files_match = 1;
 				(void)unlink(tempfile);
 			}
 			(void) close(temp_fd);
 		}
-	}
-
-	if (dostrip && (!docompare || !target))
+	} else if (dostrip)
 		digestresult = digest_file(tempfile);
 
 	/*
@@ -914,11 +919,9 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 	 * Preserve the timestamp of the source file if necessary.
 	 */
 	if (dopreserve && !files_match && !devnull) {
-		tvb[0].tv_sec = from_sb.st_atime;
-		tvb[0].tv_usec = 0;
-		tvb[1].tv_sec = from_sb.st_mtime;
-		tvb[1].tv_usec = 0;
-		(void)utimes(to_name, tvb);
+		tsb[0] = from_sb.st_atim;
+		tsb[1] = from_sb.st_mtim;
+		(void)utimensat(AT_FDCWD, to_name, tsb, 0);
 	}
 
 	if (fstat(to_fd, &to_sb) == -1) {
@@ -987,7 +990,7 @@ install(const char *from_name, const char *to_name, u_long fset, u_int flags)
 	if (!devnull)
 		(void)close(from_fd);
 
-	metadata_log(to_name, "file", tvb, NULL, digestresult, to_sb.st_size);
+	metadata_log(to_name, "file", tsb, NULL, digestresult, to_sb.st_size);
 	free(digestresult);
 }
 
@@ -1299,7 +1302,7 @@ again:
  *	or to allow integrity checks to be performed.
  */
 static void
-metadata_log(const char *path, const char *type, struct timeval *tv,
+metadata_log(const char *path, const char *type, struct timespec *ts,
 	const char *slink, const char *digestresult, off_t size)
 {
 	static const char extra[] = { ' ', '\t', '\n', '\\', '#', '\0' };
@@ -1353,9 +1356,9 @@ metadata_log(const char *path, const char *type, struct timeval *tv,
 	}
 	if (*type == 'f') /* type=file */
 		fprintf(metafp, " size=%lld", (long long)size);
-	if (tv != NULL && dopreserve)
-		fprintf(metafp, " time=%lld.%ld",
-			(long long)tv[1].tv_sec, (long)tv[1].tv_usec);
+	if (ts != NULL && dopreserve)
+		fprintf(metafp, " time=%lld.%09ld",
+			(long long)ts[1].tv_sec, ts[1].tv_nsec);
 	if (digestresult && digest)
 		fprintf(metafp, " %s=%s", digest, digestresult);
 	if (fflags)

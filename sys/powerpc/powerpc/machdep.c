@@ -176,12 +176,12 @@ cpu_startup(void *dummy)
 #ifdef PERFMON
 	perfmon_init();
 #endif
-	printf("real memory  = %ld (%ld MB)\n", ptoa(physmem),
-	    ptoa(physmem) / 1048576);
+	printf("real memory  = %ju (%ju MB)\n", ptoa((uintmax_t)physmem),
+	    ptoa((uintmax_t)physmem) / 1048576);
 	realmem = physmem;
 
 	if (bootverbose)
-		printf("available KVA = %zd (%zd MB)\n",
+		printf("available KVA = %zu (%zu MB)\n",
 		    virtual_end - virtual_avail,
 		    (virtual_end - virtual_avail) / 1048576);
 
@@ -193,23 +193,25 @@ cpu_startup(void *dummy)
 
 		printf("Physical memory chunk(s):\n");
 		for (indx = 0; phys_avail[indx + 1] != 0; indx += 2) {
-			vm_offset_t size1 =
+			vm_paddr_t size1 =
 			    phys_avail[indx + 1] - phys_avail[indx];
 
 			#ifdef __powerpc64__
-			printf("0x%016lx - 0x%016lx, %ld bytes (%ld pages)\n",
+			printf("0x%016jx - 0x%016jx, %jd bytes (%jd pages)\n",
 			#else
-			printf("0x%08x - 0x%08x, %d bytes (%ld pages)\n",
+			printf("0x%09jx - 0x%09jx, %ju bytes (%ju pages)\n",
 			#endif
-			    phys_avail[indx], phys_avail[indx + 1] - 1, size1,
-			    size1 / PAGE_SIZE);
+			    (uintmax_t)phys_avail[indx],
+			    (uintmax_t)phys_avail[indx + 1] - 1,
+			    (uintmax_t)size1, (uintmax_t)size1 / PAGE_SIZE);
 		}
 	}
 
 	vm_ksubmap_init(&kmi);
 
-	printf("avail memory = %ld (%ld MB)\n", ptoa(vm_cnt.v_free_count),
-	    ptoa(vm_cnt.v_free_count) / 1048576);
+	printf("avail memory = %ju (%ju MB)\n",
+	    ptoa((uintmax_t)vm_cnt.v_free_count),
+	    ptoa((uintmax_t)vm_cnt.v_free_count) / 1048576);
 
 	/*
 	 * Set up buffers, so they can be used to read disk labels.
@@ -249,6 +251,18 @@ powerpc_init(vm_offset_t fdt, vm_offset_t toc, vm_offset_t ofentry, void *mdp)
 	if (mdp == (void *)0x65504150)
 		mdp = NULL;
 
+#ifdef AIM
+	/*
+	 * If running from an FDT, make sure we are in real mode to avoid
+	 * tromping on firmware page tables. Everything in the kernel assumes
+	 * 1:1 mappings out of firmware, so this won't break anything not
+	 * already broken. This doesn't work if there is live OF, since OF
+	 * may internally use non-1:1 mappings.
+	 */
+	if (ofentry == 0)
+		mtmsr(mfmsr() & ~(PSL_IR | PSL_DR));
+#endif
+
 	/*
 	 * Parse metadata if present and fetch parameters.  Must be done
 	 * before console is inited so cninit gets the right value of
@@ -259,7 +273,8 @@ powerpc_init(vm_offset_t fdt, vm_offset_t toc, vm_offset_t ofentry, void *mdp)
 		kmdp = preload_search_by_type("elf kernel");
 		if (kmdp != NULL) {
 			boothowto = MD_FETCH(kmdp, MODINFOMD_HOWTO, int);
-			kern_envp = MD_FETCH(kmdp, MODINFOMD_ENVP, char *);
+			init_static_kenv(MD_FETCH(kmdp, MODINFOMD_ENVP, char *),
+			    0);
 			endkernel = ulmax(endkernel, MD_FETCH(kmdp,
 			    MODINFOMD_KERNEND, vm_offset_t));
 #ifdef DDB
@@ -271,6 +286,7 @@ powerpc_init(vm_offset_t fdt, vm_offset_t toc, vm_offset_t ofentry, void *mdp)
 	} else {
 		bzero(__sbss_start, __sbss_end - __sbss_start);
 		bzero(__bss_start, _end - __bss_start);
+		init_static_kenv(NULL, 0);
 	}
 #ifdef BOOKE
 	tlb1_init();
@@ -446,7 +462,7 @@ cpu_flush_dcache(void *ptr, size_t len)
 	addr = (uintptr_t)ptr;
 	off = addr & (cacheline_size - 1);
 	addr -= off;
-	len = (len + off + cacheline_size - 1) & ~(cacheline_size - 1);
+	len = roundup2(len + off, cacheline_size);
 
 	while (len > 0) {
 		__asm __volatile ("dcbf 0,%0" :: "r"(addr));

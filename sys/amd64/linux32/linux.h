@@ -40,7 +40,7 @@
  * debugging support
  */
 extern u_char linux_debug_map[];
-#define	ldebug(name)	isclr(linux_debug_map, LINUX_SYS_linux_ ## name)
+#define	ldebug(name)	isclr(linux_debug_map, LINUX32_SYS_linux_ ## name)
 #define	ARGS(nm, fmt)	"linux(%ld/%ld): "#nm"("fmt")\n",			\
 			(long)td->td_proc->p_pid, (long)td->td_tid
 #define	LMSG(fmt)	"linux(%ld/%ld): "fmt"\n",				\
@@ -164,13 +164,6 @@ struct l_rusage {
 	l_long	ru_nvcsw;
 	l_long	ru_nivcsw;
 } __packed;
-
-/* mmap options */
-#define	LINUX_MAP_SHARED	0x0001
-#define	LINUX_MAP_PRIVATE	0x0002
-#define	LINUX_MAP_FIXED		0x0010
-#define	LINUX_MAP_ANON		0x0020
-#define	LINUX_MAP_GROWSDOWN	0x0100
 
 struct l_mmap_argv {
 	l_uintptr_t	addr;

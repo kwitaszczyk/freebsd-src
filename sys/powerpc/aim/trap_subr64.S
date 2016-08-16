@@ -39,9 +39,12 @@
  *	#include <powerpc/aim/trap_subr.S>
  */
 
-/*
- * Save/restore segment registers
- */
+/* Locate the per-CPU data structure */
+#define GET_CPUINFO(r)  \
+        mfsprg0  r
+#define GET_TOCBASE(r)  \
+	li	r,TRAP_TOCBASE;	/* Magic address for TOC */ \
+	ld	r,0(r)
 
 /*
  * Restore SRs for a pmap
@@ -842,11 +845,7 @@ CNAME(dblow):
         mflr	%r1			/* save LR */
 	mtsprg2 %r1			/* And then in SPRG2 */
 
-	nop				/* Begin branching to generictrap */
-	bl	9f
-	.llong	generictrap
-9:	mflr	%r1
-	ld	%r1,0(%r1)
+	ld	%r1, TRAP_GENTRAP(0)	/* Get branch address */
 	mtlr	%r1
 	li	%r1, 0	 		/* How to get the vector from LR */
 	blrl				/* Branch to generictrap */

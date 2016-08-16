@@ -34,12 +34,6 @@ options 	RWLOCK_NOINLINE
 options 	NO_FFS_SNAPSHOT
 options 	NO_SWAPPING
 
-# Debugging for use in -current
-#makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
-options 	ALT_BREAK_TO_DEBUGGER
-options 	KDB			# Enable kernel debugger support
-options 	DDB			# Enable the kernel debugger
-
 # NFS root from boopt/dhcp
 options 	BOOTP
 options 	BOOTP_NFSROOT
@@ -60,6 +54,7 @@ device		uart
 device		ether
 device		mge			# Marvell Gigabit Ethernet controller
 device		mii
+device		mdio
 device		e1000phy
 device		bpf
 options 	DEVICE_POLLING
@@ -70,7 +65,6 @@ device		crypto
 device		cryptodev
 
 # USB
-options 	USB_DEBUG		# enable debug msgs
 device		usb
 device		ehci
 device		umass
@@ -80,6 +74,9 @@ device		da
 
 # NAND
 device		nand
+
+# GPIO
+device		gpio
 
 # Flattened Device Tree
 options 	FDT			# Configure using FDT/DTB data

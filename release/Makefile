@@ -21,6 +21,7 @@
 #            (by default, the directory above this one)
 #  PORTSDIR: location of ports tree to distribute (default: /usr/ports)
 #  DOCDIR:   location of doc tree (default: /usr/doc)
+#  XTRADIR:  xtra-bits-dir argument for <arch>/mkisoimages.sh
 #  NOPKG:    if set, do not distribute third-party packages
 #  NOPORTS:  if set, do not distribute ports tree
 #  NOSRC:    if set, do not distribute source tree
@@ -118,6 +119,9 @@ CLEANFILES+=	${I}.xz
 CLEANFILES+=	pkg-stage
 .endif
 CLEANDIRS=	dist ftp disc1 bootonly dvd
+.if !defined(NODOC)
+CLEANDIRS+=    reldoc rdoc
+.endif
 beforeclean:
 	chflags -R noschg .
 .include <bsd.obj.mk>
@@ -170,12 +174,14 @@ disc1: packagesystem
 # Install system
 	mkdir -p ${.TARGET}
 	cd ${WORLDDIR} && ${IMAKE} installkernel installworld distribution \
-		DESTDIR=${.OBJDIR}/${.TARGET} MK_RESCUE=no MK_KERNEL_SYMBOLS=no \
-		MK_PROFILE=no MK_SENDMAIL=no MK_TESTS=no MK_LIB32=no \
-		MK_DEBUG_FILES=no
+	    DESTDIR=${.OBJDIR}/${.TARGET} MK_AMD=no MK_AT=no \
+	    MK_INSTALLLIB=no MK_LIB32=no MK_MAIL=no \
+	    MK_NCP=no MK_TOOLCHAIN=no MK_PROFILE=no \
+	    MK_RESCUE=no MK_DICT=no \
+	    MK_KERNEL_SYMBOLS=no MK_TESTS=no MK_DEBUG_FILES=no
 # Copy distfiles
 	mkdir -p ${.TARGET}/usr/freebsd-dist
-	for dist in MANIFEST $$(ls *.txz | grep -v -- '-dbg'); \
+	for dist in MANIFEST $$(ls *.txz | grep -vE -- '(base|lib32)-dbg'); \
 	    do cp $${dist} ${.TARGET}/usr/freebsd-dist; \
 	done
 # Copy documentation, if generated
@@ -199,7 +205,7 @@ bootonly: packagesystem
 	    MK_GAMES=no MK_GROFF=no \
 	    MK_INSTALLLIB=no MK_LIB32=no MK_MAIL=no \
 	    MK_NCP=no MK_TOOLCHAIN=no MK_PROFILE=no \
-	    MK_INSTALLIB=no MK_RESCUE=no MK_DICT=no \
+	    MK_RESCUE=no MK_DICT=no \
 	    MK_KERNEL_SYMBOLS=no MK_TESTS=no MK_DEBUG_FILES=no
 # Copy manifest only (no distfiles) to get checksums
 	mkdir -p ${.TARGET}/usr/freebsd-dist
@@ -224,7 +230,7 @@ dvd: packagesystem
 		MK_TESTS=no MK_DEBUG_FILES=no
 # Copy distfiles
 	mkdir -p ${.TARGET}/usr/freebsd-dist
-	for dist in MANIFEST $$(ls *.txz | grep -v -- '-dbg'); \
+	for dist in MANIFEST $$(ls *.txz | grep -v -- '(base|lib32)-dbg'); \
 	    do cp $${dist} ${.TARGET}/usr/freebsd-dist; \
 	done
 # Copy documentation, if generated
@@ -242,13 +248,13 @@ dvd: packagesystem
 
 release.iso: disc1.iso
 disc1.iso: disc1
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_CD ${.TARGET} disc1
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_CD ${.TARGET} disc1 ${XTRADIR}
 
 dvd1.iso: dvd pkg-stage
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_DVD ${.TARGET} dvd
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_DVD ${.TARGET} dvd ${XTRADIR}
 
 bootonly.iso: bootonly
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_BO ${.TARGET} bootonly
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_BO ${.TARGET} bootonly ${XTRADIR}
 
 memstick: memstick.img
 memstick.img: disc1
@@ -280,13 +286,17 @@ ftp: packagesystem
 	cp *.txz MANIFEST ftp
 
 release:	real-release vm-release cloudware-release
-	touch ${.TARGET}
+	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} release-done
+	true
+
+release-done:
+	touch release
 
 real-release:
 	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} obj
 	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} ${RELEASE_TARGETS}
 
-install:	release-install vm-install cloudware-install
+install:	release-install vm-install
 
 release-install:
 .if defined(DESTDIR) && !empty(DESTDIR)
@@ -299,7 +309,7 @@ release-install:
 	${XZ_CMD} -k ${DESTDIR}/${OSRELEASE}-${I}
 . endif
 .endfor
+	cd ${DESTDIR} && sha512 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA512
 	cd ${DESTDIR} && sha256 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA256
-	cd ${DESTDIR} && md5 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.MD5
 
 .include "${.CURDIR}/Makefile.vm"

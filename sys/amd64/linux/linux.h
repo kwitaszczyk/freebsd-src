@@ -139,13 +139,6 @@ struct l_rlimit {
 	l_ulong		rlim_max;
 };
 
-/* mmap options */
-#define	LINUX_MAP_SHARED	0x0001
-#define	LINUX_MAP_PRIVATE	0x0002
-#define	LINUX_MAP_FIXED		0x0010
-#define	LINUX_MAP_ANON		0x0020
-#define	LINUX_MAP_GROWSDOWN	0x0100
-
 /*
  * stat family of syscalls
  */
@@ -530,8 +523,8 @@ struct l_pollfd {
 
 #define LINUX_ARCH_SET_GS		0x1001
 #define LINUX_ARCH_SET_FS		0x1002
-#define LINUX_ARCH_GET_GS		0x1003
-#define LINUX_ARCH_GET_FS		0x1004
+#define LINUX_ARCH_GET_FS		0x1003
+#define LINUX_ARCH_GET_GS		0x1004
 
 #define	linux_copyout_rusage(r, u)	copyout(r, u, sizeof(*r))
 

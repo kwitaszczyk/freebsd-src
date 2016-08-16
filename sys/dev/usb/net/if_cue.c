@@ -47,7 +47,7 @@ __FBSDID("$FreeBSD$");
  * RX filter uses a 512-bit multicast hash table, single perfect entry
  * for the station address, and promiscuous mode. Unlike the ADMtek
  * and KLSI chips, the CATC ASIC supports read and write combining
- * mode where multiple packets can be transfered using a single bulk
+ * mode where multiple packets can be transferred using a single bulk
  * transaction, which helps performance a great deal.
  */
 
@@ -177,6 +177,7 @@ MODULE_DEPEND(cue, uether, 1, 1, 1);
 MODULE_DEPEND(cue, usb, 1, 1, 1);
 MODULE_DEPEND(cue, ether, 1, 1, 1);
 MODULE_VERSION(cue, 1);
+USB_PNP_HOST_INFO(cue_devs);
 
 static const struct usb_ether_methods cue_ue_methods = {
 	.ue_attach_post = cue_attach_post,

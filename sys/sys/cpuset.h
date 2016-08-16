@@ -36,6 +36,9 @@
 
 #include <sys/bitset.h>
 
+#define	_NCPUBITS	_BITSET_BITS
+#define	_NCPUWORDS	__bitset_words(CPU_SETSIZE)
+
 #define	CPUSETBUFSIZ	((2 + sizeof(long) * 2) * _NCPUWORDS)
 
 #define	CPU_CLR(n, p)			BIT_CLR(CPU_SETSIZE, n, p)
@@ -61,6 +64,8 @@
 #define	CPU_COPY_STORE_REL(f, t)	BIT_COPY_STORE_REL(CPU_SETSIZE, f, t)
 #define	CPU_FFS(p)			BIT_FFS(CPU_SETSIZE, p)
 #define	CPU_COUNT(p)			BIT_COUNT(CPU_SETSIZE, p)
+#define	CPUSET_FSET			BITSET_FSET(_NCPUWORDS)
+#define	CPUSET_T_INITIALIZER		BITSET_T_INITIALIZER
 
 /*
  * Valid cpulevel_t values.
@@ -86,6 +91,8 @@
 #define	CPUSET_DEFAULT	0
 
 #ifdef _KERNEL
+#include <sys/queue.h>
+
 LIST_HEAD(setlist, cpuset);
 
 /*
@@ -116,6 +123,7 @@ struct cpuset {
 extern cpuset_t *cpuset_root;
 struct prison;
 struct proc;
+struct thread;
 
 struct cpuset *cpuset_thread0(void);
 struct cpuset *cpuset_ref(struct cpuset *);
@@ -124,6 +132,9 @@ int	cpuset_setthread(lwpid_t id, cpuset_t *);
 int	cpuset_setithread(lwpid_t id, int cpu);
 int	cpuset_create_root(struct prison *, struct cpuset **);
 int	cpuset_setproc_update_set(struct proc *, struct cpuset *);
+int	cpuset_which(cpuwhich_t, id_t, struct proc **,
+	    struct thread **, struct cpuset **);
+
 char	*cpusetobj_strprint(char *, const cpuset_t *);
 int	cpusetobj_strscan(cpuset_t *, const char *);
 #ifdef DDB

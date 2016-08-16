@@ -74,6 +74,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysent.h>
 #include <sys/vmmeter.h>
 
+#include <security/audit/audit.h>
 #include <security/mac/mac_framework.h>
 
 #include <vm/vm.h>
@@ -206,6 +207,7 @@ sys_mmap(td, uap)
 	pos = uap->pos;
 
 	fp = NULL;
+	AUDIT_ARG_FD(uap->fd);
 
 	/*
 	 * Ignore old flags that used to be defined but did not do anything.
@@ -312,14 +314,12 @@ sys_mmap(td, uap)
 		 * There should really be a pmap call to determine a reasonable
 		 * location.
 		 */
-		PROC_LOCK(td->td_proc);
 		if (addr == 0 ||
 		    (addr >= round_page((vm_offset_t)vms->vm_taddr) &&
 		    addr < round_page((vm_offset_t)vms->vm_daddr +
-		    lim_max_proc(td->td_proc, RLIMIT_DATA))))
+		    lim_max(td, RLIMIT_DATA))))
 			addr = round_page((vm_offset_t)vms->vm_daddr +
-			    lim_max_proc(td->td_proc, RLIMIT_DATA));
-		PROC_UNLOCK(td->td_proc);
+			    lim_max(td, RLIMIT_DATA));
 	}
 	if (size == 0) {
 		/*
@@ -1245,6 +1245,7 @@ vm_mmap_vnode(struct thread *td, vm_size_t objsize,
 		locktype = LK_SHARED;
 	if ((error = vget(vp, locktype, td)) != 0)
 		return (error);
+	AUDIT_ARG_VNODE1(vp);
 	foff = *foffp;
 	flags = *flagsp;
 	obj = vp->v_object;
@@ -1416,6 +1417,7 @@ vm_mmap(vm_map_t map, vm_offset_t *addr, vm_size_t size, vm_prot_t prot,
 		return (EINVAL);
 
 	size = round_page(size);
+	object = NULL;
 	writecounted = FALSE;
 
 	/*

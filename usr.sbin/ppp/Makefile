@@ -21,6 +21,9 @@ PPP_NO_PAM=
 PPP_NO_RADIUS=
 PPP_NO_SUID=
 .endif
+CONFS=	ppp.conf
+CONFSDIR=	${CONFDIR}/ppp
+CONFSMODE=	600
 
 .if ${MK_ATM} == "no"
 PPP_NO_ATM=
@@ -104,6 +107,7 @@ SRCS+=	netgraph.c
 
 .if defined(PPP_NO_PAM)
 CFLAGS+=-DNOPAM
+LIBADD+=	crypt
 .else
 LIBADD+=	pam
 .endif

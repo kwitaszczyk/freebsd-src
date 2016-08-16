@@ -647,7 +647,7 @@ mpssas_add_device(struct mps_softc *sc, u16 handle, u8 linkrate){
 			parent_devinfo = le32toh(parent_config_page.DeviceInfo);
 		}
 	}
-	/* TODO Check proper endianess */
+	/* TODO Check proper endianness */
 	sas_address = config_page.SASAddress.High;
 	sas_address = (sas_address << 32) | config_page.SASAddress.Low;
 
@@ -794,7 +794,13 @@ mpssas_get_sas_address_for_sata_disk(struct mps_softc *sc,
 		ioc_status = le16toh(mpi_reply.IOCStatus)
 		    & MPI2_IOCSTATUS_MASK;
 		sas_status = mpi_reply.SASStatus;
-		if (ioc_status != MPI2_IOCSTATUS_SUCCESS) {
+		switch (ioc_status) {
+		case MPI2_IOCSTATUS_SUCCESS:
+			break;
+		case MPI2_IOCSTATUS_SCSI_PROTOCOL_ERROR:
+			/* No sense sleeping.  this error won't get better */
+			break;
+		default:
 			if (sc->spinup_wait_time > 0) {
 				mps_dprint(sc, MPS_INFO, "Sleeping %d seconds "
 				    "after SATA ID error to wait for spinup\n",
@@ -803,8 +809,10 @@ mpssas_get_sas_address_for_sata_disk(struct mps_softc *sc,
 				    "mpsid", sc->spinup_wait_time * hz);
 			}
 		}
-	} while (((rc && (rc != EWOULDBLOCK)) || ioc_status || sas_status) &&
-	    (try_count < 5));
+	} while (((rc && (rc != EWOULDBLOCK)) ||
+	    	 (ioc_status && 
+		  (ioc_status != MPI2_IOCSTATUS_SCSI_PROTOCOL_ERROR))
+	       || sas_status) && (try_count < 5));
 
 	if (rc == 0 && !ioc_status && !sas_status) {
 		mps_dprint(sc, MPS_MAPPING, "%s: got SATA identify "
@@ -1153,14 +1161,14 @@ mpssas_stop_unit_done(struct cam_periph *periph, union ccb *done_ccb)
 	struct mpssas_softc *sassc;
 	char path_str[64];
 
+	if (done_ccb == NULL)
+		return;
+
 	sassc = (struct mpssas_softc *)done_ccb->ccb_h.ppriv_ptr1;
 
 	xpt_path_string(done_ccb->ccb_h.path, path_str, sizeof(path_str));
 	mps_dprint(sassc->sc, MPS_INFO, "Completing stop unit for %s\n",
 	    path_str);
-
-	if (done_ccb == NULL)
-		return;
 
 	/*
 	 * Nothing more to do except free the CCB and path.  If the command

@@ -30,6 +30,9 @@ NO_WCAST_QUAL=			-Wno-cast-qual
 CWARNEXTRA?=	-Wno-error-tautological-compare -Wno-error-empty-body \
 		-Wno-error-parentheses-equality -Wno-error-unused-function \
 		-Wno-error-pointer-sign
+.if ${COMPILER_VERSION} >= 30700
+CWARNEXTRA+=	-Wno-error-shift-negative-value
+.endif
 
 CLANG_NO_IAS= -no-integrated-as
 .if ${COMPILER_VERSION} < 30500
@@ -39,15 +42,27 @@ CLANG_NO_IAS34= -no-integrated-as
 .endif
 
 .if ${COMPILER_TYPE} == "gcc"
-.if ${COMPILER_VERSION} >= 40300
+.if ${COMPILER_VERSION} >= 40800
 # Catch-all for all the things that are in our tree, but for which we're
-# not yet ready for this compiler. Note: we likely only really "support"
-# building with gcc 4.8 and newer. Nothing older has been tested.
-CWARNEXTRA?=	-Wno-error=inline -Wno-error=enum-compare -Wno-error=unused-but-set-variable \
-		-Wno-error=aggressive-loop-optimizations -Wno-error=maybe-uninitialized \
-		-Wno-error=array-bounds -Wno-error=address \
-		-Wno-error=cast-qual -Wno-error=sequence-point -Wno-error=attributes \
-		-Wno-error=strict-overflow -Wno-error=overflow
+# not yet ready for this compiler.
+CWARNEXTRA?=	-Wno-error=address				\
+		-Wno-error=aggressive-loop-optimizations	\
+		-Wno-error=array-bounds				\
+		-Wno-error=attributes				\
+		-Wno-error=cast-qual				\
+		-Wno-error=enum-compare				\
+		-Wno-error=inline				\
+		-Wno-error=maybe-uninitialized			\
+		-Wno-error=overflow				\
+		-Wno-error=sequence-point			\
+		-Wno-error=strict-overflow			\
+		-Wno-error=unused-but-set-variable
+.if ${COMPILER_VERSION} >= 60100
+CWARNEXTRA+=	-Wno-error=misleading-indentation		\
+		-Wno-error=nonnull-compare			\
+		-Wno-error=shift-overflow			\
+		-Wno-error=tautological-compare
+.endif
 .else
 # For gcc 4.2, eliminate the too-often-wrong warnings about uninitialized vars.
 CWARNEXTRA?=	-Wno-uninitialized
@@ -91,6 +106,18 @@ INLINE_LIMIT?=	8000
 .endif
 
 .if ${MACHINE_CPUARCH} == "arm"
+INLINE_LIMIT?=	8000
+.endif
+
+.if ${MACHINE_CPUARCH} == "aarch64"
+# We generally don't want fpu instructions in the kernel.
+CFLAGS += -mgeneral-regs-only
+# Reserve x18 for pcpu data
+CFLAGS += -ffixed-x18
+.endif
+
+.if ${MACHINE_CPUARCH} == "riscv"
+CFLAGS.gcc+=	-mcmodel=medany
 INLINE_LIMIT?=	8000
 .endif
 
@@ -187,7 +214,7 @@ CFLAGS+=	-fstack-protector
 CFLAGS+=	-gdwarf-2
 .endif
 
-CFLAGS+= ${CWARNFLAGS} ${CWARNFLAGS.${.IMPSRC:T}}
+CFLAGS+= ${CWARNFLAGS:M*} ${CWARNFLAGS.${.IMPSRC:T}}
 CFLAGS+= ${CFLAGS.${COMPILER_TYPE}} ${CFLAGS.${.IMPSRC:T}}
 
 # Tell bmake not to mistake standard targets for things to be searched for
@@ -195,10 +222,10 @@ CFLAGS+= ${CFLAGS.${COMPILER_TYPE}} ${CFLAGS.${.IMPSRC:T}}
 PHONY_NOTMAIN = afterdepend afterinstall all beforedepend beforeinstall \
 		beforelinking build build-tools buildfiles buildincludes \
 		checkdpadd clean cleandepend cleandir cleanobj configure \
-		depend dependall distclean distribute exe \
+		depend distclean distribute exe \
 		html includes install installfiles installincludes lint \
-		obj objlink objs objwarn realall realdepend \
-		realinstall regress subdir-all subdir-depend subdir-install \
+		obj objlink objs objwarn \
+		realinstall regress \
 		tags whereobj
 
 .PHONY: ${PHONY_NOTMAIN}

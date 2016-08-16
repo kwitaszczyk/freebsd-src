@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+PACKAGE=runtime
 DIST=		${.CURDIR}/../../contrib/openresolv
 .PATH:		${DIST}
 
@@ -29,6 +30,7 @@ ${f}:	${f}.in
 		-e 's:@LIBEXECDIR@:${FILESDIR}:g' \
 		-e 's:@VARDIR@:${VARDIR}:g' \
 		-e 's:@RESTARTCMD \(.*\)@:${RESTARTCMD}:g' \
+		-e 's:@RESTARTCMD@:${RESTARTCMD_}:g' \
 		-e 's:@RCDIR@:${RCDIR}:g' \
 		-e 's: vpn : ng[0-9]*&:g' \
 		${DIST}/$@.in > $@

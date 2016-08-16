@@ -52,7 +52,6 @@ __FBSDID("$FreeBSD$");
 #include <locale.h>
 #include <pwd.h>
 #include <stdbool.h>
-#define _WITH_GETLINE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,11 +86,16 @@ static void
 trimlr(char **buf)
 {
 	char *walk = *buf;
+	char *last;
 
 	while (isspace(*walk))
 		walk++;
-	while (isspace(walk[strlen(walk) -1]))
-		walk[strlen(walk) -1] = '\0';
+	if (*walk != '\0') {
+		last = walk + strlen(walk) - 1;
+		while (last > walk && isspace(*last))
+			last--;
+		*(last+1) = 0;
+	}
 
 	*buf = walk;
 }
@@ -113,7 +117,7 @@ cal_fopen(const char *file)
 		return (NULL);
 	}
 
-	for (i = 0; i < sizeof(calendarHomes)/sizeof(calendarHomes[0]) ; i++) {
+	for (i = 0; i < nitems(calendarHomes); i++) {
 		if (chdir(calendarHomes[i]) != 0)
 			continue;
 
@@ -464,7 +468,7 @@ closecal(FILE *fp)
 		if (setuid(getuid()) < 0) {
 			warnx("setuid failed");
 			_exit(1);
-		};
+		}
 		if (setgid(getegid()) < 0) {
 			warnx("setgid failed");
 			_exit(1);

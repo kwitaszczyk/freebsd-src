@@ -2,6 +2,7 @@
 
 .include <src.opts.mk>
 
+PACKAGE=lib${LIB}
 LIB=	proc
 
 SRCS=	proc_bkpt.c		\
@@ -14,9 +15,6 @@ SRCS=	proc_bkpt.c		\
 INCS=	libproc.h
 
 CFLAGS+=	-I${.CURDIR}
-# avoid cyclic dependency
-CFLAGS+=	-I${.CURDIR:H}/librtld_db
-GENDIRDEPS_FILTER+= Nlib/librtld_db
 
 .if ${MK_CXX} == "no"
 CFLAGS+=	-DNO_CXA_DEMANGLE
@@ -26,7 +24,7 @@ LIBADD+=		cxxrt
 LIBADD+=	supcplusplus
 .endif
 
-LIBADD+=	elf rtld_db util
+LIBADD+=	elf procstat rtld_db util
 
 .if ${MK_CDDL} != "no"
 LIBADD+=	ctf

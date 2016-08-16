@@ -31,9 +31,9 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/linker_set.h>
-#include <sys/errno.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -295,7 +295,7 @@ pci_emul_msix_tread(struct pci_devinst *pi, uint64_t offset, int size)
 
 	/*
 	 * The PCI standard only allows 4 and 8 byte accesses to the MSI-X
-	 * table but we also allow 1 byte access to accomodate reads from
+	 * table but we also allow 1 byte access to accommodate reads from
 	 * ddb.
 	 */
 	if (size != 1 && size != 4 && size != 8)
@@ -760,8 +760,6 @@ pci_populate_msicap(struct msicap *msicap, int msgnum, int nextptr)
 {
 	int mmc;
 
-	CTASSERT(sizeof(struct msicap) == 14);
-
 	/* Number of msi messages must be a power of 2 between 1 and 32 */
 	assert((msgnum & (msgnum - 1)) == 0 && msgnum >= 1 && msgnum <= 32);
 	mmc = ffs(msgnum) - 1;
@@ -786,7 +784,6 @@ static void
 pci_populate_msixcap(struct msixcap *msixcap, int msgnum, int barnum,
 		     uint32_t msix_tab_size)
 {
-	CTASSERT(sizeof(struct msixcap) == 12);
 
 	assert(msix_tab_size % 4096 == 0);
 
@@ -863,10 +860,9 @@ msixcap_cfgwrite(struct pci_devinst *pi, int capoff, int offset,
 		 int bytes, uint32_t val)
 {
 	uint16_t msgctrl, rwmask;
-	int off, table_bar;
+	int off;
 	
 	off = offset - capoff;
-	table_bar = pi->pi_msix.table_bar;
 	/* Message Control Register */
 	if (off == 2 && bytes == 2) {
 		rwmask = PCIM_MSIXCTRL_MSIX_ENABLE | PCIM_MSIXCTRL_FUNCTION_MASK;
@@ -937,8 +933,6 @@ pci_emul_add_pciecap(struct pci_devinst *pi, int type)
 {
 	int err;
 	struct pciecap pciecap;
-
-	CTASSERT(sizeof(struct pciecap) == 60);
 
 	if (type != PCIEM_TYPE_ROOT_PORT)
 		return (-1);
@@ -1510,7 +1504,7 @@ pci_lintr_route(struct pci_devinst *pi)
 	 * is not yet assigned.
 	 */
 	if (ii->ii_ioapic_irq == 0)
-		ii->ii_ioapic_irq = ioapic_pci_alloc_irq();
+		ii->ii_ioapic_irq = ioapic_pci_alloc_irq(pi);
 	assert(ii->ii_ioapic_irq > 0);
 
 	/*
@@ -1518,7 +1512,7 @@ pci_lintr_route(struct pci_devinst *pi)
 	 * not yet assigned.
 	 */
 	if (ii->ii_pirq_pin == 0)
-		ii->ii_pirq_pin = pirq_alloc_pin(pi->pi_vmctx);
+		ii->ii_pirq_pin = pirq_alloc_pin(pi);
 	assert(ii->ii_pirq_pin > 0);
 
 	pi->pi_lintr.ioapic_irq = ii->ii_ioapic_irq;
@@ -2035,7 +2029,7 @@ pci_emul_diow(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 		 */
 	}
 
-	if (baridx > 2) {
+	if (baridx > 2 || baridx < 0) {
 		printf("diow: unknown bar idx %d\n", baridx);
 	}
 }
@@ -2055,6 +2049,7 @@ pci_emul_dior(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 			return (0);
 		}
 	
+		value = 0;
 		if (size == 1) {
 			value = sc->ioregs[offset];
 		} else if (size == 2) {
@@ -2089,7 +2084,7 @@ pci_emul_dior(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 	}
 
 
-	if (baridx > 2) {
+	if (baridx > 2 || baridx < 0) {
 		printf("dior: unknown bar idx %d\n", baridx);
 		return (0);
 	}

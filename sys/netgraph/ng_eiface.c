@@ -489,7 +489,6 @@ ng_eiface_rcvmsg(node_p node, item_p item, hook_p lasthook)
 			}
 			error = if_setlladdr(priv->ifp,
 			    (u_char *)msg->data, ETHER_ADDR_LEN);
-			EVENTHANDLER_INVOKE(iflladdr_event, priv->ifp);
 			break;
 		    }
 
@@ -680,5 +679,5 @@ vnet_ng_eiface_uninit(const void *unused)
 
 	delete_unrhdr(V_ng_eiface_unit);
 }
-VNET_SYSUNINIT(vnet_ng_eiface_uninit, SI_SUB_PSEUDO, SI_ORDER_ANY,
+VNET_SYSUNINIT(vnet_ng_eiface_uninit, SI_SUB_INIT_IF, SI_ORDER_ANY,
    vnet_ng_eiface_uninit, NULL);

@@ -124,7 +124,8 @@
 #endif
 #define VM_MAX_ADDRESS          VM_MAXUSER_ADDRESS
 
-#define USRSTACK        VM_MAXUSER_ADDRESS
+#define	SHAREDPAGE		(VM_MAXUSER_ADDRESS - PAGE_SIZE)
+#define	USRSTACK		SHAREDPAGE
 
 /* initial pagein size of beginning of executable file */
 #ifndef VM_INITIAL_PAGEIN
@@ -170,5 +171,7 @@ extern vm_offset_t vm_max_kernel_address;
 
 #define	SFBUF
 #define	SFBUF_MAP
+
+#define	DEVMAP_MAX_VADDR	ARM_VECTORS_HIGH
 
 #endif	/* _MACHINE_VMPARAM_H_ */

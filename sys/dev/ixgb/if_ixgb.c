@@ -539,7 +539,8 @@ ixgb_ioctl(struct ifnet * ifp, IOCTL_CMD_TYPE command, caddr_t data)
 			adapter->hw.max_frame_size =
 				ifp->if_mtu + ETHER_HDR_LEN + ETHER_CRC_LEN;
 
-			ixgb_init_locked(adapter);
+			if (ifp->if_drv_flags & IFF_DRV_RUNNING)
+				ixgb_init_locked(adapter);
 			IXGB_UNLOCK(adapter);
 		}
 		break;
@@ -1243,8 +1244,8 @@ ixgb_allocate_pci_resources(struct adapter * adapter)
 	device_t        dev = adapter->dev;
 
 	rid = IXGB_MMBA;
-	adapter->res_memory = bus_alloc_resource(dev, SYS_RES_MEMORY,
-						 &rid, 0, ~0, 1,
+	adapter->res_memory = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
+						 &rid,
 						 RF_ACTIVE);
 	if (!(adapter->res_memory)) {
 		device_printf(dev, "Unable to allocate bus resource: memory\n");
@@ -1257,9 +1258,9 @@ ixgb_allocate_pci_resources(struct adapter * adapter)
 	adapter->hw.hw_addr = (uint8_t *) & adapter->osdep.mem_bus_space_handle;
 
 	rid = 0x0;
-	adapter->res_interrupt = bus_alloc_resource(dev, SYS_RES_IRQ,
-						    &rid, 0, ~0, 1,
-						  RF_SHAREABLE | RF_ACTIVE);
+	adapter->res_interrupt = bus_alloc_resource_any(dev, SYS_RES_IRQ,
+							&rid,
+							RF_SHAREABLE | RF_ACTIVE);
 	if (!(adapter->res_interrupt)) {
 		device_printf(dev,
 		    "Unable to allocate bus resource: interrupt\n");

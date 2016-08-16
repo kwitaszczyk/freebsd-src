@@ -53,6 +53,7 @@
 #define	FIRST_MSI_INT	256
 #ifdef XENHVM
 #include <xen/xen-os.h>
+#include <xen/interface/event_channel.h>
 #define	NUM_EVTCHN_INTS	NR_EVENT_CHANNELS
 #define	FIRST_EVTCHN_INT \
     (FIRST_MSI_INT + NUM_MSI_INTS)
@@ -82,7 +83,7 @@
 
 #ifndef LOCORE
 
-typedef void inthand_t(u_int cs, u_int ef, u_int esp, u_int ss);
+typedef void inthand_t(void);
 
 #define	IDTVEC(name)	__CONCAT(X,name)
 
@@ -133,8 +134,13 @@ struct intsrc {
 
 struct trapframe;
 
+#ifdef SMP
+extern cpuset_t intr_cpus;
+#endif
 extern struct mtx icu_lock;
 extern int elcr_found;
+
+extern int msix_disable_migration;
 
 #ifndef DEV_ATPIC
 void	atpic_reset(void);

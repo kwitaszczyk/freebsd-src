@@ -47,18 +47,16 @@ __FBSDID("$FreeBSD$");
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
+#include <libutil.h>
 #include <netdb.h>
 #include <paths.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
-#define	_WITH_GETLINE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include <libutil.h>
 
 #include "autofs_ioctl.h"
 

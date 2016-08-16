@@ -37,10 +37,11 @@
 
 #define	AUXARGS_ENTRY(pos, id, val) {suword(pos++, id); suword(pos++, val);}
 
+struct image_params;
 struct thread;
 
 /*
- * Structure used to pass infomation from the loader to the
+ * Structure used to pass information from the loader to the
  * stack fixup routine.
  */
 typedef struct {

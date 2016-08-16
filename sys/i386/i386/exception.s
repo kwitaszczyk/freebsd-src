@@ -158,11 +158,11 @@ IDTVEC(xmm)
 alltraps:
 	pushal
 	pushl	$0
-	movl	%ds,(%esp)
+	movw	%ds,(%esp)
 	pushl	$0
-	movl	%es,(%esp)
+	movw	%es,(%esp)
 	pushl	$0
-	movl	%fs,(%esp)
+	movw	%fs,(%esp)
 alltraps_with_regs_pushed:
 	SET_KERNEL_SREGS
 	cld
@@ -234,14 +234,14 @@ IDTVEC(lcall_syscall)
 	pushfl				/* save eflags */
 	popl	8(%esp)			/* shuffle into tf_eflags */
 	pushl	$7			/* sizeof "lcall 7,0" */
-	subl	$4,%esp			/* skip over tf_trapno */
+	pushl	$0			/* tf_trapno */
 	pushal
 	pushl	$0
-	movl	%ds,(%esp)
+	movw	%ds,(%esp)
 	pushl	$0
-	movl	%es,(%esp)
+	movw	%es,(%esp)
 	pushl	$0
-	movl	%fs,(%esp)
+	movw	%fs,(%esp)
 	SET_KERNEL_SREGS
 	cld
 	FAKE_MCOUNT(TF_EIP(%esp))
@@ -263,14 +263,14 @@ IDTVEC(lcall_syscall)
 	SUPERALIGN_TEXT
 IDTVEC(int0x80_syscall)
 	pushl	$2			/* sizeof "int 0x80" */
-	subl	$4,%esp			/* skip over tf_trapno */
+	pushl	$0			/* tf_trapno */
 	pushal
 	pushl	$0
-	movl	%ds,(%esp)
+	movw	%ds,(%esp)
 	pushl	$0
-	movl	%es,(%esp)
+	movw	%es,(%esp)
 	pushl	$0
-	movl	%fs,(%esp)
+	movw	%fs,(%esp)
 	SET_KERNEL_SREGS
 	cld
 	FAKE_MCOUNT(TF_EIP(%esp))
@@ -343,6 +343,7 @@ MCOUNT_LABEL(eintr)
 	.text
 	SUPERALIGN_TEXT
 	.type	doreti,@function
+	.globl	doreti
 doreti:
 	FAKE_MCOUNT($bintr)		/* init "from" bintr -> doreti */
 doreti_next:
@@ -426,15 +427,15 @@ doreti_iret_fault:
 	subl	$8,%esp
 	pushal
 	pushl	$0
-	movl	%ds,(%esp)
+	movw	%ds,(%esp)
 	.globl	doreti_popl_ds_fault
 doreti_popl_ds_fault:
 	pushl	$0
-	movl	%es,(%esp)
+	movw	%es,(%esp)
 	.globl	doreti_popl_es_fault
 doreti_popl_es_fault:
 	pushl	$0
-	movl	%fs,(%esp)
+	movw	%fs,(%esp)
 	.globl	doreti_popl_fs_fault
 doreti_popl_fs_fault:
 	sti

@@ -32,9 +32,9 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
-#include <sys/bitstring.h>
 #include <sys/select.h>
 #include <assert.h>
+#include <bitstring.h>
 #include <err.h>
 #include <errno.h>
 #include <netgraph/ng_message.h>
@@ -88,7 +88,7 @@ le_set_scan_param(int s, int argc, char *argv[])
 	
 	if (strcmp(argv[3], "public") == 0)
 		adrtype = 0;
-	else if (strcmp(argv[0], "random") == 0)
+	else if (strcmp(argv[3], "random") == 0)
 		adrtype = 1;
 	else
 		return USAGE;

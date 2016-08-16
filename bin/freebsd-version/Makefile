@@ -1,8 +1,9 @@
 # $FreeBSD$
 
+PACKAGE=runtime
 SCRIPTS = freebsd-version
 MAN = freebsd-version.1
-CLEANFILES = freebsd-version.sh
+CLEANFILES = freebsd-version freebsd-version.sh
 NEWVERS = ${.CURDIR}/../../sys/conf/newvers.sh
 
 freebsd-version.sh: ${.CURDIR}/freebsd-version.sh.in ${NEWVERS}

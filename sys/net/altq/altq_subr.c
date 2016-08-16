@@ -512,6 +512,11 @@ altq_pfattach(struct pf_altq *a)
 		error = fairq_pfattach(a);
 		break;
 #endif
+#ifdef ALTQ_CODEL
+	case ALTQT_CODEL:
+		error = codel_pfattach(a);
+		break;
+#endif
 	default:
 		error = ENXIO;
 	}
@@ -588,6 +593,11 @@ altq_add(struct pf_altq *a)
                 error = fairq_add_altq(a);
                 break;
 #endif
+#ifdef ALTQ_CODEL
+	case ALTQT_CODEL:
+		error = codel_add_altq(a);
+		break;
+#endif
 	default:
 		error = ENXIO;
 	}
@@ -628,6 +638,11 @@ altq_remove(struct pf_altq *a)
         case ALTQT_FAIRQ:
                 error = fairq_remove_altq(a);
                 break;
+#endif
+#ifdef ALTQ_CODEL
+	case ALTQT_CODEL:
+		error = codel_remove_altq(a);
+		break;
 #endif
 	default:
 		error = ENXIO;
@@ -742,6 +757,11 @@ altq_getqstats(struct pf_altq *a, void *ubuf, int *nbytes)
         case ALTQT_FAIRQ:
                 error = fairq_getqstats(a, ubuf, nbytes);
                 break;
+#endif
+#ifdef ALTQ_CODEL
+	case ALTQT_CODEL:
+		error = codel_getqstats(a, ubuf, nbytes);
+		break;
 #endif
 	default:
 		error = ENXIO;
@@ -1007,9 +1027,10 @@ read_machclk(void)
 		panic("read_machclk");
 #endif
 	} else {
-		struct timeval tv;
+		struct timeval tv, boottime;
 
 		microtime(&tv);
+		getboottime(&boottime);
 		val = (((u_int64_t)(tv.tv_sec - boottime.tv_sec) * 1000000
 		    + tv.tv_usec) << MACHCLK_SHIFT);
 	}

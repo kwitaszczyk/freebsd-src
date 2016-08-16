@@ -5,12 +5,12 @@
 
 SUBDIR=	${_atf} \
 	${_atrun} \
-	${_casper} \
+	${_blacklistd-helper} \
 	${_comsat} \
 	${_dma} \
-	${_dma-mbox-create} \
 	getty \
 	${_mail.local} \
+	${_makewhatis.local} \
 	${_mknetid} \
 	${_pppoed} \
 	revnetgroup \
@@ -34,12 +34,12 @@ SUBDIR=	${_atf} \
 _atrun=		atrun
 .endif
 
-.if ${MK_BOOTPD} != "no"
-SUBDIR+=	bootpd
+.if ${MK_BLACKLIST} != "no"
+_blacklistd-helper+=	blacklistd-helper
 .endif
 
-.if ${MK_CASPER} != "no"
-_casper=	casper
+.if ${MK_BOOTPD} != "no"
+SUBDIR+=	bootpd
 .endif
 
 .if ${MK_FINGER} != "no"
@@ -56,7 +56,6 @@ _comsat=	comsat
 
 .if ${MK_DMAGENT} != "no"
 _dma=		dma
-_dma-mbox-create=	dma-mbox-create
 .endif
 
 .if ${MK_NIS} != "no"
@@ -88,6 +87,10 @@ _rshd=		rshd
 .if ${MK_SENDMAIL} != "no"
 _mail.local=	mail.local
 _smrsh=		smrsh
+.endif
+
+.if ${MK_MAN_UTILS} != "no"
+_makewhatis.local=	makewhatis.local
 .endif
 
 .if ${MK_TALK} != "no"

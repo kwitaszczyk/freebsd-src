@@ -54,8 +54,10 @@ __FBSDID("$FreeBSD$");
 
 #include "bhyverun.h"
 #include "acpi.h"
+#include "atkbdc.h"
 #include "inout.h"
 #include "dbgport.h"
+#include "fwctl.h"
 #include "ioapic.h"
 #include "mem.h"
 #include "mevent.h"
@@ -260,7 +262,8 @@ fbsdrun_addcpu(struct vmctx *ctx, int fromcpu, int newcpu, uint64_t rip)
 	 * with vm_suspend().
 	 */
 	error = vm_activate_cpu(ctx, newcpu);
-	assert(error == 0);
+	if (error != 0)
+		err(EX_OSERR, "could not activate CPU %d", newcpu);
 
 	CPU_SET_ATOMIC(newcpu, &cpumask);
 
@@ -308,14 +311,13 @@ static int
 vmexit_inout(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 {
 	int error;
-	int bytes, port, in, out, string;
+	int bytes, port, in, out;
 	int vcpu;
 
 	vcpu = *pvcpu;
 
 	port = vme->u.inout.port;
 	bytes = vme->u.inout.bytes;
-	string = vme->u.inout.string;
 	in = vme->u.inout.in;
 	out = !in;
 
@@ -386,13 +388,11 @@ vmexit_wrmsr(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 static int
 vmexit_spinup_ap(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 {
-	int newcpu;
-	int retval = VMEXIT_CONTINUE;
 
-	newcpu = spinup_ap(ctx, *pvcpu,
-			   vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
+	(void)spinup_ap(ctx, *pvcpu,
+		    vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
 
-	return (retval);
+	return (VMEXIT_CONTINUE);
 }
 
 #define	DEBUG_EPT_MISCONFIG
@@ -597,7 +597,7 @@ static vmexit_handler_t handler[VM_EXITCODE_MAX] = {
 static void
 vm_loop(struct vmctx *ctx, int vcpu, uint64_t startrip)
 {
-	int error, rc, prevcpu;
+	int error, rc;
 	enum vm_exitcode exitcode;
 	cpuset_t active_cpus;
 
@@ -618,8 +618,6 @@ vm_loop(struct vmctx *ctx, int vcpu, uint64_t startrip)
 		if (error != 0)
 			break;
 
-		prevcpu = vcpu;
-
 		exitcode = vmexit[vcpu].exitcode;
 		if (exitcode >= VM_EXITCODE_MAX || handler[exitcode] == NULL) {
 			fprintf(stderr, "vm_loop: unexpected exitcode 0x%x\n",
@@ -627,7 +625,7 @@ vm_loop(struct vmctx *ctx, int vcpu, uint64_t startrip)
 			exit(1);
 		}
 
-                rc = (*handler[exitcode])(ctx, &vmexit[vcpu], &vcpu);
+		rc = (*handler[exitcode])(ctx, &vmexit[vcpu], &vcpu);
 
 		switch (rc) {
 		case VMEXIT_CONTINUE:
@@ -902,6 +900,7 @@ main(int argc, char *argv[])
 
 	init_mem();
 	init_inout();
+	atkbdc_init(ctx);
 	pci_irq_init(ctx);
 	ioapic_init(ctx);
 
@@ -949,6 +948,9 @@ main(int argc, char *argv[])
 		error = acpi_build(ctx, guest_ncpus);
 		assert(error == 0);
 	}
+
+	if (lpc_bootrom())
+		fwctl_init();
 
 	/*
 	 * Change the proc title to include the VM name.

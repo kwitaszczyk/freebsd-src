@@ -237,6 +237,10 @@ get_class_stats(class_stats_t *statsp, struct rm_class *cl)
 	if (q_is_rio(cl->q_))
 		rio_getstats((rio_t *)cl->red_, &statsp->red[0]);
 #endif
+#ifdef ALTQ_CODEL
+	if (q_is_codel(cl->q_))
+		codel_getstats(cl->codel_, &statsp->codel);
+#endif
 }
 
 int
@@ -697,8 +701,8 @@ cbq_modify_class(acp)
  *		struct rm_class *parent, struct rm_class *borrow)
  *
  * This function create a new traffic class in the CBQ class hierarchy of
- * given paramters.  The class that created is either the root, default,
- * or a new dynamic class.  If CBQ is not initilaized, the the root class
+ * given parameters.  The class that created is either the root, default,
+ * or a new dynamic class.  If CBQ is not initilaized, the root class
  * will be created.
  */
 static int

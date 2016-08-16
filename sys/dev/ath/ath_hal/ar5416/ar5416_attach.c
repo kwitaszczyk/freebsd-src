@@ -937,13 +937,7 @@ ar5416FillCapabilityInfo(struct ath_hal *ah)
 
 	pCap->halCompressSupport = AH_FALSE;
 	pCap->halBurstSupport = AH_TRUE;
-	/*
-	 * This is disabled for now; the net80211 layer needs to be
-	 * taught when it is and isn't appropriate to enable FF processing
-	 * with 802.11n NICs (it tries to enable both A-MPDU and
-	 * fast frames, with very tragic crash-y results.)
-	 */
-	pCap->halFastFramesSupport = AH_FALSE;
+	pCap->halFastFramesSupport = AH_TRUE;
 	pCap->halChapTuningSupport = AH_TRUE;
 	pCap->halTurboPrimeSupport = AH_TRUE;
 
@@ -973,7 +967,8 @@ ar5416FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halChanHalfRate = AH_TRUE;
 	pCap->halChanQuarterRate = AH_TRUE;
 
-	pCap->halTstampPrecision = 32;
+	pCap->halTxTstampPrecision = 32;
+	pCap->halRxTstampPrecision = 32;
 	pCap->halHwPhyCounterSupport = AH_TRUE;
 	pCap->halIntrMask = HAL_INT_COMMON
 			| HAL_INT_RX
@@ -1025,8 +1020,6 @@ ar5416FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halGTTSupport = AH_TRUE;
 	pCap->halCSTSupport = AH_TRUE;
 	pCap->halEnhancedDfsSupport = AH_FALSE;
-	/* Hardware supports 32 bit TSF values in the RX descriptor */
-	pCap->halHasLongRxDescTsf = AH_TRUE;
 	/*
 	 * BB Read WAR: this is only for AR5008/AR9001 NICs
 	 * It is also set individually in the AR91xx attach functions.

@@ -3,14 +3,19 @@
 
 .include <src.opts.mk>
 
+PACKAGE=runtime
 PROG=	ls
 SRCS=	cmp.c ls.c print.c util.c
-LIBADD=	util
+LIBADD=	xo util
 
 .if !defined(RELEASE_CRUNCH) && \
 	${MK_LS_COLORS} != no
 CFLAGS+= -DCOLORLS
-LIBADD+=	termcapw xo
+LIBADD+=	termcapw
+.endif
+
+.if ${MK_TESTS} != "no"
+SUBDIR+=	tests
 .endif
 
 .include <bsd.prog.mk>

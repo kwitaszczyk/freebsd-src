@@ -23,11 +23,17 @@ ident		SAM9G20EK
 include 	"std.arm"
 include 	"../at91/std.sam9g20ek"
 
+#options		FDT
+#options 	FDT_DTB_STATIC
+#makeoptions	FDT_DTS_FILE=at91sam9g20ek.dts
+
+options 	EARLY_PRINTF
+options 	SOCDEV_PA=0xfc000000
+options 	SOCDEV_VA=0xdc000000
+
 #To statically compile in device wiring instead of /boot/device.hints
 hints		"SAM9G20EK.hints"
 makeoptions	MODULES_OVERRIDE=""
-
-makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 
 options 	SCHED_4BSD		# 4BSD scheduler
 options 	INET			# InterNETworking
@@ -57,16 +63,6 @@ options 	SYSVMSG			# SYSV-style message queues
 options 	SYSVSEM			# SYSV-style semaphores
 options 	_KPOSIX_PRIORITY_SCHEDULING # Posix P1003_1B real-time extensions
 
-# Debugging support.  Always need this:
-options 	KDB			# Enable kernel debugger support
-options 	DDB			# Enable the kernel debugger
-# Always turn these off, even in -current builds, they are too slow.
-#options 	INVARIANTS		# Enable calls of extra sanity checking
-#options 	INVARIANT_SUPPORT	# Extra sanity checks of internal structures, required by INVARIANTS
-#options 	WITNESS			# Enable checks to detect deadlocks and cycles
-#options 	WITNESS_SKIPSPIN	# Don't run witness on spinlocks for speed
-#options 	DIAGNOSTIC
-
 # NFS root from boopt/dhcp
 #options 	BOOTP
 #options 	BOOTP_NFSROOT
@@ -74,9 +70,11 @@ options 	DDB			# Enable the kernel debugger
 #options 	BOOTP_NFSV3
 #options 	BOOTP_WIRED_TO=ate0
 
-# s2 because s1 is reserved for the DOS parittions sometimes needed to
-# boot off SD cards on the G20 and newer chips.
-options 	ROOTDEVNAME=\"ufs:/dev/mmcsd0s2a\"
+# s3 because s1 is reserved for the DOS parittions sometimes needed to
+# boot off SD cards on the G20 and newer chips. s2 is reserved for
+# nanobsd's config partition. s3 and s4 are for the ping-pong upgrade
+# path.
+options 	ROOTDEVNAME=\"ufs:/dev/mmcsd0s3a\"
 
 # kernel/memory size reduction
 options 	MUTEX_NOINLINE
@@ -92,8 +90,10 @@ device		bpf			# Berkeley packet filter
 
 # Ethernet
 device		mii			# Minimal MII support
-device		ate			# Atmel AT91 Ethernet driver
-options 	AT91_ATE_USE_RMII
+#device		ate			# Atmel AT91 Ethernet driver
+#options 	AT91_ATE_USE_RMII
+device		macb			# Atmel AT91 Ethernet driver
+options 	AT91_MACB_USE_RMII
 
 # I2C
 device		at91_twi		# Atmel AT91 Two-wire Interface
@@ -130,7 +130,6 @@ device		pass			# Passthrough device (direct ATA/SCSI access)
 
 # Serial (COM) ports
 device		uart			# Multi-uart driver
-options 	ALT_BREAK_TO_DEBUGGER
 
 # USB support
 device		ohci			# OHCI USB interface
