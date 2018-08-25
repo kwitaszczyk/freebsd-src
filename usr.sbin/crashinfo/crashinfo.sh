@@ -31,31 +31,66 @@
 #
 # $FreeBSD$
 
-usage()
+CRASHDIR_DEFAULT="/var/crash"
+GDB_DEFAULT="/usr/local/bin/gdb"
+GDB_PATHS="${GDB_DEFAULT} /usr/libexec/gdb /usr/bin/gdb"
+
+CRASHDIR=""
+GDB=""
+INFO=""
+KERNEL=""
+VMCORE=""
+
+die()
 {
-	echo "usage: crashinfo [-b] [-d crashdir] [-n dumpnr]" \
-		"[-k kernel] [core]"
+	echo "$@"
 	exit 1
 }
 
-# Remove an uncompressed copy of a dump
+# Remove an uncompressed copy of a dump.
 cleanup()
 {
+	if [ ! -e "${VMCORE}" ]; then
+		rm -f "${VMORE}"
+	fi
+}
 
-	[ -e $VMCORE ] && rm -f $VMCORE
+usage()
+{
+	die "usage: crashinfo [-b] [-d crashdir] [-n dumpnr] [-k kernel] [core]"
+}
+
+last_dumpnr()
+{
+	local next
+
+	if [ ! -r "${CRASHDIR}/bounds" ]; then
+		return 1
+	fi
+
+	next=$(cat "${CRASHDIR}/bounds")
+	if [ -z "${next}" ] || [ "${next}" -eq 0 ]; then
+		return 1
+	fi
+
+	echo $((next - 1))
 }
 
 # Find a gdb binary to use and save the value in GDB.
-find_gdb()
+gdb_find()
 {
-	local binary
+	local binary path
 
-	for binary in /usr/local/bin/gdb /usr/libexec/gdb /usr/bin/gdb; do
-		if [ -x ${binary} ]; then
-			GDB=${binary}
-			return
+	path=""
+
+	for binary in ${GDB_PATHS}; do
+		if [ -x "${binary}" ]; then
+			path="${binary}"
+			break
 		fi
 	done
+
+	echo "${path}"
 }
 
 # Run a single gdb command against a kernel file in batch mode.
@@ -63,22 +98,21 @@ find_gdb()
 # is given in the remaining arguments.
 gdb_command()
 {
-	local k
 
-	k=$1 ; shift
-
-	if [ ${GDB} = /usr/local/bin/gdb ]; then
-		${GDB} -batch -ex "$@" $k
+	if [ "${GDB}" = "${GDB_DEFAULT}" ]; then
+		"${GDB}" -batch -ex "$@" "${KERNEL}"
 	else
-		echo -e "$@" | ${GDB} -x /dev/stdin -batch $k
+		echo -e "$@" | "${GDB}" -batch -x /dev/stdin "${KERNEL}"
 	fi
 }
 
-find_kernel()
+kernel_find()
 {
-	local ivers k kvers
+	local iversion kernel kversion path
 
-	ivers=$(awk '
+	path=""
+
+	iversion=$(awk '
 	/Version String/ {
 		print
 		nextline=1
@@ -90,279 +124,262 @@ find_kernel()
 		} else {
 			print
 		}
-	}' $INFO)
+	}' "${INFO}")
 
 	# Look for a matching kernel version, handling possible truncation
 	# of the version string recovered from the dump.
-	for k in `sysctl -n kern.bootfile` $(ls -t /boot/*/kernel); do
-		kvers=$(gdb_command $k 'printf "  Version String: %s", version' | \
-		    awk "{line=line\$0\"\n\"} END{print substr(line,1,${#ivers})}" \
+	for kernel in $(sysctl -n kern.bootfile) $(ls -t /boot/*/kernel); do
+		kversion=$(gdb_command 'printf "  Version String: %s", version' |
+		    awk "{line=line\$0\"\n\"} END{print substr(line,1,${#iversion})}" \
 		    2>/dev/null)
-		if [ "$ivers" = "$kvers" ]; then
-			KERNEL=$k
+		if [ "${iversion}" = "${kversion}" ]; then
+			path="${kernel}"
 			break
 		fi
 	done
+
+	echo "${path}"
 }
 
-BATCH=false
-CRASHDIR=/var/crash
-DUMPNR=
-KERNEL=
+core_crashdir()
+{
+	local crashdir name
 
-while getopts "bd:n:k:" opt; do
-	case "$opt" in
-	b)
-		BATCH=true
-		;;
-	d)
-		CRASHDIR=$OPTARG
-		;;
-	n)
-		DUMPNR=$OPTARG
-		;;
-	k)
-		KERNEL=$OPTARG
-		;;
-	\?)
-		usage
-		;;
-	esac
-done
+	name="${1}"
 
-shift $((OPTIND - 1))
+	crashdir=$(dirname "${name}")
+	echo "${crashdir}"
+}
 
-if [ $# -eq 1 ]; then
-	if [ -n "$DUMPNR" ]; then
-		echo "-n and an explicit vmcore are mutually exclusive"
-		usage
-	fi
+core_dumpnr()
+{
+	local dumpnr name
 
-	# Figure out the crash directory and number from the vmcore name.
-	CRASHDIR=`dirname $1`
-	DUMPNR=$(expr $(basename $1) : 'vmcore\.\([0-9]*\)')
-	if [ -z "$DUMPNR" ]; then
-		echo "Unable to determine dump number from vmcore file $1."
-		exit 1
-	fi
-elif [ $# -gt 1 ]; then
-	usage
-else
-	# If we don't have an explicit dump number, operate on the most
-	# recent dump.
-	if [ -z "$DUMPNR" ]; then
-		if ! [ -r $CRASHDIR/bounds ]; then
-			echo "No crash dumps in $CRASHDIR."
-			exit 1
-		fi			
-		next=`cat $CRASHDIR/bounds`
-		if [ -z "$next" ] || [ "$next" -eq 0 ]; then
-			echo "No crash dumps in $CRASHDIR."
-			exit 1
-		fi
-		DUMPNR=$(($next - 1))
-	fi
-fi
+	name="${1}"
 
-VMCORE=$CRASHDIR/vmcore.$DUMPNR
-INFO=$CRASHDIR/info.$DUMPNR
-FILE=$CRASHDIR/core.txt.$DUMPNR
-HOSTNAME=`hostname`
+	dumpnr=$(expr $(basename "${name}") : 'vmcore\.\([0-9]*\)')
+	echo "${dumpnr}"
+}
 
-if $BATCH; then
-	echo "Writing crash summary to $FILE."
-	exec > $FILE 2>&1
-fi
+core_command()
+{
+	local cmd kernel title vmcore
 
-find_gdb
-if [ -z "$GDB" ]; then
-	echo "Unable to find a kernel debugger."
-	exit 1
-fi
+	if [ $# -eq 1 ]; then
+		title="${1}"
 
-if [ ! -e $VMCORE ]; then
-    	if [ -e $VMCORE.gz ]; then
-		trap cleanup EXIT HUP INT QUIT TERM
-		gzcat $VMCORE.gz > $VMCORE
-	elif [ -e $VMCORE.zst ]; then
-		trap cleanup EXIT HUP INT QUIT TERM
-		zstdcat $VMCORE.zst > $VMCORE
+		cmd="${title} -M ${VMCORE} -N ${KERNEL}"
 	else
-		echo "$VMCORE not found"
-		exit 1
+		title="${1}"
+		cmd="${2}"
+
+		# Parse a command format string and replace:
+		# - %% with %;
+		# - %c with a vmcore path;
+		# - %k with a kernel path.
+
+		# Characters '&', '/' and '\' in vmcore and kernel paths must be
+		# first escaped for sed(1).
+		vmcore=$(echo "${VMCORE}" | sed -E 's/([&\/\\])/\\\1/g')
+		kernel=$(echo "${KERNEL}" | sed -E 's/([&\/\\])/\\\1/g')
+
+		cmd=$(echo "${cmd}" | sed -E "s/((^|[^%])(%%)*)%c/\1${vmcore}/g;\
+		    s/((^|[^%])(%%)*)%k/\1${kernel}/g; s/%%/%/g")
 	fi
-fi
 
-if [ ! -e $INFO ]; then
-	echo "$INFO not found"
-	exit 1
-fi
+	cat << EOF
 
-# If the user didn't specify a kernel, then try to find one.
-if [ -z "$KERNEL" ]; then
-	find_kernel
-	if [ -z "$KERNEL" ]; then
-		echo "Unable to find matching kernel for $VMCORE"
-		exit 1
+------------------------------------------------------------------------
+${title}
+
+$(${cmd})
+EOF
+}
+
+core_kgdb()
+{
+	local cmd file
+
+	cmd="${1}"
+
+	# XXX: /bin/sh on 7.0+ is broken so we can't simply pipe the commands to
+	# kgdb via stdin and have to use a temporary file instead.
+	file=$(mktemp /tmp/crashinfo.XXXXXX)
+	if [ $? -eq 0 ]; then
+		cat << EOF >"${file}"
+$(echo "${cmd}" | sed -E $'s/;/\\\n/g')
+quit
+EOF
+		"${GDB%gdb}kgdb" "${KERNEL}" "${VMCORE}" <"${file}"
+		rm -f "${file}"
+		echo
 	fi
-elif [ ! -e $KERNEL ]; then
-	echo "$KERNEL not found"
-	exit 1
-fi
+}
 
-umask 077
+core_generate()
+{
+	local core hostname machine osrelease ostype version
 
-# Simulate uname
-ostype=$(gdb_command $KERNEL 'printf "%s", ostype')
-osrelease=$(gdb_command $KERNEL 'printf "%s", osrelease')
-version=$(gdb_command $KERNEL 'printf "%s", version' | tr '\t\n' '  ')
-machine=$(gdb_command $KERNEL 'printf "%s", machine')
+	core="${1}"
 
-if ! $BATCH; then
-	echo "Writing crash summary to $FILE."
-	exec > $FILE 2>&1
-fi
+	umask 077
 
-echo "$HOSTNAME dumped core - see $VMCORE"
-echo
-date
-echo
-echo "$ostype $HOSTNAME $osrelease $version $machine"
-echo
-sed -ne '/^  Panic String: /{s//panic: /;p;}' $INFO
-echo
+	if [ -n "${core}" ]; then
+		echo "Writing crash summary to ${core}."
+		exec >"${core}" 2>&1
+	fi
 
-# XXX: /bin/sh on 7.0+ is broken so we can't simply pipe the commands to
-# kgdb via stdin and have to use a temporary file instead.
-file=`mktemp /tmp/crashinfo.XXXXXX`
-if [ $? -eq 0 ]; then
-	echo "bt" >> $file
-	echo "quit" >> $file
-	${GDB%gdb}kgdb $KERNEL $VMCORE < $file
-	rm -f $file
-	echo
-fi
-echo
+	# Simulate uname.
+	ostype=$(gdb_command 'printf "%s", ostype')
+	osrelease=$(gdb_command 'printf "%s", osrelease')
+	version=$(gdb_command 'printf "%s", version' | tr '\t\n' '  ')
+	machine=$(gdb_command 'printf "%s", machine')
 
-echo "------------------------------------------------------------------------"
-echo "ps -axlww"
-echo
-ps -M $VMCORE -N $KERNEL -axlww
-echo
+	hostname=$(hostname)
+	cat << EOF
+${hostname} dumped core - see ${VMCORE}
 
-echo "------------------------------------------------------------------------"
-echo "vmstat -s"
-echo
-vmstat -M $VMCORE -N $KERNEL -s
-echo
+$(date)
 
-echo "------------------------------------------------------------------------"
-echo "vmstat -m"
-echo
-vmstat -M $VMCORE -N $KERNEL -m
-echo
+${ostype} ${hostname} ${osrelease} ${version} ${machine}
 
-echo "------------------------------------------------------------------------"
-echo "vmstat -z"
-echo
-vmstat -M $VMCORE -N $KERNEL -z
-echo
+$(sed -ne '/^  Panic String: /{s//panic: /;p;}' "${INFO}")
 
-echo "------------------------------------------------------------------------"
-echo "vmstat -i"
-echo
-vmstat -M $VMCORE -N $KERNEL -i
-echo
+EOF
 
-echo "------------------------------------------------------------------------"
-echo "pstat -T"
-echo
-pstat -M $VMCORE -N $KERNEL -T
-echo
+	core_kgdb "bt"
+	core_command "ps -axlww"
+	core_command "vmstat -s"
+	core_command "vmstat -m"
+	core_command "vmstat -z"
+	core_command "vmstat -i"
+	core_command "pstat -T"
+	core_command "pstat -s"
+	core_command "iostat"
+	core_command "ipcs -a" "ipcs -C %c -N %k -a"
+	core_command "ipcs -T" "ipcs -C %c -N %k -T"
+	# XXX: This doesn't actually work in 5.x+.
+	if false; then
+		core_command "w -dn"
+	fi
+	core_command "nfsstat"
+	core_command "netstat -s"
+	core_command "netstat -m"
+	core_command "netstat -anA"
+	core_command "netstat -aL"
+	core_command "fstat"
+	core_command "dmesg -a"
+	core_command "kernel config" "config -x %k"
+	core_command "ddb capture buffer" "ddb capture -M %c -N %k print"
+}
 
-echo "------------------------------------------------------------------------"
-echo "pstat -s"
-echo
-pstat -M $VMCORE -N $KERNEL -s
-echo
+main()
+{
+	local batch crashdir dumpnr opt vmcore
 
-echo "------------------------------------------------------------------------"
-echo "iostat"
-echo
-iostat -M $VMCORE -N $KERNEL
-echo
+	batch=false
+	crashdir=""
+	dumpnr=""
 
-echo "------------------------------------------------------------------------"
-echo "ipcs -a"
-echo
-ipcs -C $VMCORE -N $KERNEL -a
-echo
+	while getopts "bd:k:n:" opt; do
+		case "${opt}" in
+		b)
+			batch=true
+			;;
+		d)
+			crashdir="${OPTARG}"
+			[ -n "${crashdir}" ] || usage
+			;;
+		k)
+			KERNEL="${OPTARG}"
+			[ -n "${KERNEL}" ] || usage
+			;;
+		n)
+			dumpnr="${OPTARG}"
+			[ -n "${dumpnr}" ] || usage
+			;;
+		*)
+			usage
+			;;
+		esac
+	done
+	shift $((OPTIND - 1))
 
-echo "------------------------------------------------------------------------"
-echo "ipcs -T"
-echo
-ipcs -C $VMCORE -N $KERNEL -T
-echo
+	if [ $# -eq 1 ]; then
+		if [ -n "${crashdir}" ]; then
+			die "Flag -d and an explicit vmcore are mutually exclusive."
+		elif [ -n "${dumpnr}" ]; then
+			die "Flag -n and an explicit vmcore are mutually exclusive."
+		fi
+	elif [ $# -gt 1 ]; then
+		usage
+	fi
 
-# XXX: This doesn't actually work in 5.x+
-if false; then
-echo "------------------------------------------------------------------------"
-echo "w -dn"
-echo
-w -M $VMCORE -N $KERNEL -dn
-echo
-fi
+	vmcore="${1}"
 
-echo "------------------------------------------------------------------------"
-echo "nfsstat"
-echo
-nfsstat -M $VMCORE -N $KERNEL
-echo
+	if [ $# -eq 1 ]; then
+		# Figure out a crash directory from the vmcore name.
+		CRASHDIR=$(core_crashdir "${vmcore}")
+	elif [ -n "${crashdir}" ]; then
+		CRASHDIR="${crashdir}"
+	else
+		CRASHDIR="${CRASHDIR_DEFAULT}"
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "netstat -s"
-echo
-netstat -M $VMCORE -N $KERNEL -s
-echo
+	if [ $# -eq 1 ]; then
+		# Figure out a dump number from the vmcore name.
+		dumpnr=$(core_dumpnr "${vmcore}")
+		if [ -z "${dumpnr}" ]; then
+			die "Unable to determine dump number from vmcore file ${vmcore}."
+		fi
+	elif [ -z "${dumpnr}" ]; then
+		# If we don't have an explicit dump number, operate on the most
+		# recent dump.
+		dumpnr=$(last_dumpnr)
+		if [ -z "${dumpnr}" ]; then
+			die "No crash dumps in ${crashdir}."
+		fi
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "netstat -m"
-echo
-netstat -M $VMCORE -N $KERNEL -m
-echo
+	INFO="${CRASHDIR}/info.${dumpnr}"
+	VMCORE="${CRASHDIR}/vmcore.${dumpnr}"
 
-echo "------------------------------------------------------------------------"
-echo "netstat -anA"
-echo
-netstat -M $VMCORE -N $KERNEL -anA
-echo
+	GDB=$(gdb_find)
+	if [ -z "${GDB}" ]; then
+		die "Unable to find a kernel debugger."
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "netstat -aL"
-echo
-netstat -M $VMCORE -N $KERNEL -aL
-echo
+	if [ -z "${KERNEL}" ]; then
+		# If the user didn't specify a kernel, then try to find one.
+		KERNEL=$(kernel_find)
+		if [ -z "${KERNEL}" ]; then
+			die "Unable to find a matching kernel for ${VMCORE}."
+		fi
+	elif [ ! -e "${KERNEL}" ]; then
+		die "Unable to find a kernel ${KERNEL}."
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "fstat"
-echo
-fstat -M $VMCORE -N $KERNEL
-echo
+	if [ ! -e "${INFO}" ]; then
+		die "Unable to find an info file ${INFO}."
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "dmesg"
-echo
-dmesg -a -M $VMCORE -N $KERNEL
-echo
+	if [ ! -e "${VMCORE}" ]; then
+		if [ -e "${VMCORE}.gz" ]; then
+			trap cleanup EXIT HUP INT QUIT TERM
+			gzcat "${VMCORE}.gz" >"${VMCORE}"
+		elif [ -e "${VMCORE}.zst" ]; then
+			trap cleanup EXIT HUP INT QUIT TERM
+			zstdcat "${VMCORE}.zst" >"${VMCORE}"
+		else
+			die "Unable to find a core dump ${VMCORE}."
+		fi
+	fi
 
-echo "------------------------------------------------------------------------"
-echo "kernel config"
-echo
-config -x $KERNEL
+	if "${batch}"; then
+		core_generate "${CRASHDIR}/core.txt.${dumpnr}"
+	else
+		core_generate
+	fi
+}
 
-echo
-echo "------------------------------------------------------------------------"
-echo "ddb capture buffer"
-echo
-
-ddb capture -M $VMCORE -N $KERNEL print
+main "$@"
