@@ -143,21 +143,21 @@ kernel_find()
 
 core_crashdir()
 {
-	local crashdir name
+	local crashdir path
 
-	name="${1}"
+	path="${1}"
 
-	crashdir=$(dirname "${name}")
+	crashdir=$(dirname "${path}")
 	echo "${crashdir}"
 }
 
 core_dumpnr()
 {
-	local dumpnr name
+	local dumpnr path
 
-	name="${1}"
+	path="${1}"
 
-	dumpnr=$(expr $(basename "${name}") : 'vmcore\.\([0-9]*\)')
+	dumpnr=$(expr $(basename "${path}") : 'vmcore\.\([0-9]*\)')
 	echo "${dumpnr}"
 }
 
