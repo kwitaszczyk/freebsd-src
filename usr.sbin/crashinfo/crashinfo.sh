@@ -211,8 +211,8 @@ $(echo "${cmd}" | sed -E $'s/;/\\\n/g')
 quit
 EOF
 		"${GDB%gdb}kgdb" "${KERNEL}" "${VMCORE}" <"${file}"
-		rm -f "${file}"
 		echo
+		rm -f "${file}"
 	fi
 }
 
