@@ -50,8 +50,8 @@ die()
 # Remove an uncompressed copy of a dump.
 cleanup()
 {
-	if [ ! -e "${VMCORE}" ]; then
-		rm -f "${VMORE}"
+	if [ -e "${VMCORE}" ]; then
+		rm -f "${VMCORE}"
 	fi
 }
 
